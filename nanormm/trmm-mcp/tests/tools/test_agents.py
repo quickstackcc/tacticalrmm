@@ -90,24 +90,23 @@ async def test_agent_recent_tasks_returns_list(trmm_env):
 
 
 @pytest.mark.asyncio
-async def test_agent_patch_state_returns_categorized_kbs(trmm_env):
+async def test_agent_patch_state_returns_winupdate_list(trmm_env):
     from trmm_mcp.tools.agents import agent_patch_state
     from trmm_mcp.trmm_client import TrmmClient
 
-    payload = {
-        "installed": ["KB1"],
-        "missing": ["KB2", "KB3"],
-        "failed": [],
-        "pending_reboot": ["KB4"],
-    }
+    payload = [
+        {"id": 1, "kb": "KB1", "title": "Update 1", "installed": True},
+        {"id": 2, "kb": "KB2", "title": "Update 2", "installed": False},
+    ]
     with respx.mock(base_url="https://api.test") as mock:
-        mock.get("/agents/uuid-1/winupdates/").mock(
+        mock.get("/winupdate/uuid-1/").mock(
             return_value=httpx.Response(200, json=payload)
         )
         client = TrmmClient.from_env()
         result = await agent_patch_state(client=client, agent_id="uuid-1")
 
-    assert result["missing"] == ["KB2", "KB3"]
+    assert len(result) == 2
+    assert result[1]["installed"] is False
 
 
 @pytest.mark.asyncio

@@ -4,39 +4,28 @@ import respx
 
 
 @pytest.mark.asyncio
-async def test_list_alerts_returns_normalized_records(trmm_env):
+async def test_list_alerts_returns_dashboard_payload(trmm_env):
     from trmm_mcp.tools.alerts import list_alerts
     from trmm_mcp.trmm_client import TrmmClient
 
-    fake_payload = [
-        {
-            "id": 1,
-            "alert_time": "2026-04-27T10:00:00Z",
-            "severity": "warning",
-            "message": "CPU high",
-            "agent": "agent-uuid-1",
-            "snoozed": False,
-            "resolved": False,
-        },
-        {
-            "id": 2,
-            "alert_time": "2026-04-27T11:00:00Z",
-            "severity": "error",
-            "message": "Disk full",
-            "agent": "agent-uuid-2",
-            "snoozed": False,
-            "resolved": False,
-        },
-    ]
-
+    fake_payload = {
+        "alerts_count": 2,
+        "alerts": [
+            {"id": 1, "severity": "warning", "message": "CPU high", "agent": "uuid-1"},
+            {"id": 2, "severity": "error", "message": "Disk full", "agent": "uuid-2"},
+        ],
+    }
     with respx.mock(base_url="https://api.test") as mock:
-        mock.get("/alerts/").mock(return_value=httpx.Response(200, json=fake_payload))
+        route = mock.patch("/alerts/").mock(
+            return_value=httpx.Response(200, json=fake_payload)
+        )
         client = TrmmClient.from_env()
         result = await list_alerts(client=client)
 
-    assert len(result) == 2
-    assert result[0]["id"] == 1
-    assert result[0]["severity"] == "warning"
+    assert result["alerts_count"] == 2
+    assert len(result["alerts"]) == 2
+    # No filters → default top=25
+    assert b'"top":25' in route.calls.last.request.content
 
 
 @pytest.mark.asyncio
@@ -45,12 +34,14 @@ async def test_list_alerts_filters_by_status(trmm_env):
     from trmm_mcp.trmm_client import TrmmClient
 
     with respx.mock(base_url="https://api.test") as mock:
-        route = mock.get("/alerts/").mock(return_value=httpx.Response(200, json=[]))
+        route = mock.patch("/alerts/").mock(
+            return_value=httpx.Response(200, json={"alerts_count": 0, "alerts": []})
+        )
         client = TrmmClient.from_env()
         await list_alerts(client=client, status="unresolved")
 
-    sent = route.calls.last.request
-    assert sent.url.params["resolved"] == "false"
+    body = route.calls.last.request.content
+    assert b'"resolvedFilter":false' in body
 
 
 @pytest.mark.asyncio
@@ -83,18 +74,21 @@ async def test_get_alert_404_propagates(trmm_env):
 
 
 @pytest.mark.asyncio
-async def test_search_past_alerts_filters_by_agent_and_since(trmm_env):
+async def test_search_past_alerts_uses_time_filter(trmm_env):
     from trmm_mcp.tools.alerts import search_past_alerts
     from trmm_mcp.trmm_client import TrmmClient
 
     with respx.mock(base_url="https://api.test") as mock:
-        route = mock.get("/alerts/").mock(return_value=httpx.Response(200, json=[]))
+        route = mock.patch("/alerts/").mock(
+            return_value=httpx.Response(200, json={"alerts_count": 0, "alerts": []})
+        )
         client = TrmmClient.from_env()
-        await search_past_alerts(client=client, agent_id="abc", since="2026-04-01T00:00:00Z")
+        await search_past_alerts(
+            client=client, agent_id="abc", since="2026-04-01T00:00:00Z"
+        )
 
-    sent = route.calls.last.request
-    assert sent.url.params["agent"] == "abc"
-    assert sent.url.params["since"] == "2026-04-01T00:00:00Z"
+    body = route.calls.last.request.content
+    assert b'"timeFilter":"2026-04-01T00:00:00Z"' in body
 
 
 @pytest.mark.asyncio

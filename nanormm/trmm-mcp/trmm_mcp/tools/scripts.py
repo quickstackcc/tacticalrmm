@@ -6,9 +6,16 @@ from ..trmm_client import TrmmClient
 async def script_history(
     *, client: TrmmClient, agent_id: str, n: int = 20
 ) -> list[dict[str, Any]]:
-    return await client.get(
-        f"/agents/{agent_id}/scripthistory/", params={"limit": str(n)}
-    )
+    """
+    Recent agent activity history. TRMM returns all activity types
+    (script_run, cmd_run, agent_install, etc.). Filter by `type` field
+    in caller if you only want script runs.
+    """
+    rows = await client.get(f"/agents/{agent_id}/history/")
+    # TRMM doesn't paginate this endpoint; trim client-side.
+    if isinstance(rows, list):
+        return rows[:n]
+    return rows
 
 
 ALLOWED_SHELLS = {"cmd", "powershell", "bash"}

@@ -36,8 +36,14 @@ async def agent_recent_tasks(
     return await client.get(f"/agents/{agent_id}/tasks/", params={"limit": str(n)})
 
 
-async def agent_patch_state(*, client: TrmmClient, agent_id: str) -> dict[str, Any]:
-    return await client.get(f"/agents/{agent_id}/winupdates/")
+async def agent_patch_state(*, client: TrmmClient, agent_id: str) -> list[dict[str, Any]]:
+    """
+    Windows Update inventory for an agent. Returns a flat list of update
+    records; each has fields like `kb`, `title`, `installed`, `result`,
+    `severity`, `date_installed`. Categorization (missing vs installed vs
+    failed vs pending-reboot) is the caller's job.
+    """
+    return await client.get(f"/winupdate/{agent_id}/")
 
 
 async def agent_running_processes(
