@@ -15,7 +15,7 @@ async def test_get_returns_json_on_200(trmm_env):
 
 
 @pytest.mark.asyncio
-async def test_get_sends_knox_token_header(trmm_env):
+async def test_get_sends_api_key_header(trmm_env):
     from trmm_mcp.trmm_client import TrmmClient
 
     with respx.mock(base_url="https://api.test") as mock:
@@ -23,7 +23,7 @@ async def test_get_sends_knox_token_header(trmm_env):
         client = TrmmClient.from_env()
         await client.get("/agents/")
         sent = route.calls.last.request
-        assert sent.headers["authorization"] == "Token test-token"
+        assert sent.headers["x-api-key"] == "test-token"
 
 
 @pytest.mark.asyncio

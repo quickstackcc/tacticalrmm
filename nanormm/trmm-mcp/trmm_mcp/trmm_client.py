@@ -16,9 +16,14 @@ class TrmmClient:
     # docs/superpowers/plans/2026-04-27-nanormm-trmm-mcp.md Task 18.
 
     def __init__(self, base_url: str, token: str, *, timeout: float = 15.0):
+        # TRMM accepts two auth schemes globally (see DRF DEFAULT_AUTHENTICATION_CLASSES):
+        # knox.auth.TokenAuthentication ("Authorization: Token ...") for user logins,
+        # and tacticalrmm.auth.APIAuthentication ("X-API-KEY: ...") for service callers.
+        # nanormm is a service, so we use the X-API-KEY scheme — keys are long-lived,
+        # bound to a TRMM user, and inherit that user's permissions.
         self._client = httpx.AsyncClient(
             base_url=base_url,
-            headers={"Authorization": f"Token {token}"},
+            headers={"X-API-KEY": token},
             timeout=timeout,
         )
 
