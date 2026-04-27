@@ -88,7 +88,14 @@ async def test_search_past_alerts_uses_time_filter(trmm_env):
         )
 
     body = route.calls.last.request.content
-    assert b'"timeFilter":"2026-04-01T00:00:00Z"' in body
+    # timeFilter is TRMM's days-back integer, not the original ISO string
+    assert b'"timeFilter":' in body
+    # Should be a positive integer (days since 2026-04-01 → at least 1)
+    import json as _json
+
+    sent = _json.loads(body)
+    assert isinstance(sent["timeFilter"], int)
+    assert sent["timeFilter"] >= 1
 
 
 @pytest.mark.asyncio

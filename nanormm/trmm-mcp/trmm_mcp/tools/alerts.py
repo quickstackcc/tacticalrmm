@@ -1,6 +1,19 @@
+from datetime import UTC, datetime
 from typing import Any
 
 from ..trmm_client import TrmmClient
+
+
+def _iso_to_days_back(iso: str) -> int:
+    """Convert an ISO 8601 timestamp to TRMM's `timeFilter` integer (days back from today).
+
+    TRMM's `/alerts/` PATCH view does `int(request.data["timeFilter"])` and treats
+    the value as days, computing `alert_time__gt today - timedelta(days=N)`. We
+    keep the agent-facing API in ISO 8601 (more conventional) and translate here.
+    """
+    parsed = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    delta = datetime.now(UTC) - parsed
+    return max(1, delta.days)
 
 
 async def list_alerts(
@@ -18,6 +31,7 @@ async def list_alerts(
     - status='unresolved' → adds resolvedFilter=False.
     - status='snoozed' → adds snoozedFilter=True.
     - client_id → adds clientFilter=[client_id].
+    - since=ISO timestamp → translated to TRMM's days-back integer.
 
     With no filters, returns the unresolved+unsnoozed top set (top defaults to 25).
     """
@@ -31,7 +45,7 @@ async def list_alerts(
     if client_id is not None:
         body["clientFilter"] = [client_id]
     if since is not None:
-        body["timeFilter"] = since
+        body["timeFilter"] = _iso_to_days_back(since)
     if not body:
         # Default: top 25 dashboard alerts
         body["top"] = 25
@@ -45,21 +59,17 @@ async def get_alert(*, client: TrmmClient, alert_id: int) -> dict[str, Any]:
 async def search_past_alerts(
     *,
     client: TrmmClient,
-    agent_id: str,
+    agent_id: str,  # noqa: ARG001 - TRMM has no agent-scoped alerts filter; caller filters client-side
     since: str,
 ) -> dict[str, Any] | list[dict[str, Any]]:
     """
-    Find historical alerts for an agent since a timestamp.
+    Find historical alerts since an ISO timestamp.
 
-    TRMM doesn't have an agent-scoped alerts endpoint — we use the same /alerts/
-    PATCH filter body. agent_id maps to TRMM's filter via the alert's agent FK
-    (TRMM filters by client/site, not by agent). For agent-specific filtering
-    we pass the agent_id in `agent_filter` if TRMM supports it, otherwise the
-    caller filters client-side. (TRMM's filter shape is documented in
-    api/tacticalrmm/alerts/views.py:GetAddAlerts.patch.)
+    TRMM has no agent-scoped alerts filter — the agent_id parameter is accepted
+    for API symmetry but ignored at the wire layer. The caller is responsible
+    for filtering the returned list by agent.
     """
-    body: dict[str, Any] = {"timeFilter": since}
-    return await client.patch("/alerts/", json=body)
+    return await client.patch("/alerts/", json={"timeFilter": _iso_to_days_back(since)})
 
 
 async def acknowledge_alert(
