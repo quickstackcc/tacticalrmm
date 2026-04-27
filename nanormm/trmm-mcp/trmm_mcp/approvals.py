@@ -30,7 +30,13 @@ class ApprovalRegistry:
             "status": "pending",
             "created_at": _now_iso(),
         }
-        self._r.set(_key(action_id), json.dumps(payload), ex=self._ttl)
+        try:
+            serialized = json.dumps(payload)
+        except (TypeError, ValueError) as e:
+            raise ApprovalError(
+                f"cannot serialize action payload (non-JSON args?): {e}"
+            ) from e
+        self._r.set(_key(action_id), serialized, ex=self._ttl)
         return action_id
 
     def get(self, action_id: str) -> dict[str, Any] | None:
@@ -72,21 +78,43 @@ class ApprovalRegistry:
         require_status: set[str],
         update: dict[str, Any],
     ) -> None:
-        raw = self._r.get(_key(action_id))
-        if raw is None:
-            raise ApprovalError(f"unknown or expired action_id: {action_id}")
-        current = json.loads(raw)
-        if current["status"] in _TERMINAL:
-            return  # idempotent: terminal state, ignore
-        if current["status"] not in require_status:
+        key = _key(action_id)
+
+        # Closure used by redis.transaction(): receives a pipeline that has
+        # been WATCH'd on `key`. We read inside the WATCH window, validate,
+        # then enter MULTI and queue the write. If anyone else mutates the
+        # key between WATCH and EXEC, EXEC aborts and the helper retries.
+        def txn(pipe: redis.client.Pipeline) -> None:
+            raw = pipe.get(key)
+            if raw is None:
+                raise ApprovalError(f"unknown or expired action_id: {action_id}")
+            current = json.loads(raw)
+            if current["status"] in _TERMINAL:
+                # Idempotent: terminal state, no-op.  Cancel the transaction
+                # by aborting the pipeline so EXEC does nothing.
+                pipe.unwatch()
+                return
+            if current["status"] not in require_status:
+                pipe.unwatch()
+                raise ApprovalError(
+                    f"cannot transition from {current['status']!r} via {set(update.keys())}"
+                )
+            current.update(update)
+            ttl = pipe.ttl(key)
+            ex = max(ttl, 1) if ttl > 0 else self._ttl
+            pipe.multi()
+            pipe.set(key, json.dumps(current), ex=ex)
+
+        try:
+            self._r.transaction(txn, key, value_from_callable=False)
+        except redis.WatchError:
+            # Lost the race; let the caller decide whether to retry.  In
+            # practice a competing approve/reject is the only realistic
+            # source, and the second caller will hit a non-pending status
+            # on retry which raises ApprovalError — desired behavior.
             raise ApprovalError(
-                f"cannot transition from {current['status']!r} via {set(update.keys())}"
-            )
-        current.update(update)
-        # Preserve remaining TTL
-        ttl = self._r.ttl(_key(action_id))
-        ex = max(ttl, 1) if ttl > 0 else self._ttl
-        self._r.set(_key(action_id), json.dumps(current), ex=ex)
+                f"concurrent modification detected on action {action_id}; retry"
+            ) from None
 
 
 def _key(action_id: str) -> str:

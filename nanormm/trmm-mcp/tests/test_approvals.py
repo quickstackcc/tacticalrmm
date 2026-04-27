@@ -100,3 +100,29 @@ def test_action_id_is_unique(fake_redis):
     reg = ApprovalRegistry(fake_redis, ttl_seconds=1800)
     ids = {reg.create(tool_name="x", args={}, summary="y") for _ in range(50)}
     assert len(ids) == 50
+
+
+def test_mark_executed_already_executed_is_idempotent(fake_redis):
+    """Re-executing an executed action is a no-op (replay-on-restart safety)."""
+    from trmm_mcp.approvals import ApprovalRegistry
+
+    reg = ApprovalRegistry(fake_redis, ttl_seconds=1800)
+    aid = reg.create(tool_name="x", args={}, summary="y")
+    reg.mark_approved(aid, approved_by="U_A")
+    reg.mark_executed(aid, result={"first": True})
+    # Second execution attempt should be a no-op
+    reg.mark_executed(aid, result={"second": True})
+    p = reg.get(aid)
+    assert p["status"] == "executed"
+    assert p["result"] == {"first": True}  # unchanged
+
+
+def test_create_rejects_non_serializable_args(fake_redis):
+    """Non-JSON args raise ApprovalError, not bare TypeError."""
+    from trmm_mcp.approvals import ApprovalRegistry
+    from trmm_mcp.exceptions import ApprovalError
+
+    reg = ApprovalRegistry(fake_redis, ttl_seconds=1800)
+    # set is not JSON-serializable
+    with pytest.raises(ApprovalError):
+        reg.create(tool_name="x", args={"bad": {1, 2, 3}}, summary="set is not JSON")
