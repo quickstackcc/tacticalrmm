@@ -22,3 +22,25 @@ async def list_agents(
 
 async def get_agent(*, client: TrmmClient, agent_id: str) -> dict[str, Any]:
     return await client.get(f"/agents/{agent_id}/")
+
+
+async def agent_recent_checks(
+    *, client: TrmmClient, agent_id: str, n: int = 20
+) -> list[dict[str, Any]]:
+    return await client.get(f"/agents/{agent_id}/checks/", params={"limit": str(n)})
+
+
+async def agent_recent_tasks(
+    *, client: TrmmClient, agent_id: str, n: int = 20
+) -> list[dict[str, Any]]:
+    return await client.get(f"/agents/{agent_id}/tasks/", params={"limit": str(n)})
+
+
+async def agent_patch_state(*, client: TrmmClient, agent_id: str) -> dict[str, Any]:
+    return await client.get(f"/agents/{agent_id}/winupdates/")
+
+
+async def agent_running_processes(
+    *, client: TrmmClient, agent_id: str
+) -> list[dict[str, Any]]:
+    return await client.get(f"/agents/{agent_id}/processes/")

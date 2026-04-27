@@ -56,3 +56,71 @@ async def test_get_agent_returns_full_record(trmm_env):
 
     assert result["hostname"] == "DC01"
     assert result["operating_system"] == "Windows Server 2022"
+
+
+@pytest.mark.asyncio
+async def test_agent_recent_checks_returns_list(trmm_env):
+    from trmm_mcp.tools.agents import agent_recent_checks
+    from trmm_mcp.trmm_client import TrmmClient
+
+    payload = [{"id": 1, "name": "CPU", "status": "passing"}]
+    with respx.mock(base_url="https://api.test") as mock:
+        route = mock.get("/agents/uuid-1/checks/").mock(
+            return_value=httpx.Response(200, json=payload)
+        )
+        client = TrmmClient.from_env()
+        result = await agent_recent_checks(client=client, agent_id="uuid-1", n=20)
+
+    assert len(result) == 1
+    assert route.calls.last.request.url.params["limit"] == "20"
+
+
+@pytest.mark.asyncio
+async def test_agent_recent_tasks_returns_list(trmm_env):
+    from trmm_mcp.tools.agents import agent_recent_tasks
+    from trmm_mcp.trmm_client import TrmmClient
+
+    payload = [{"id": 1, "name": "Backup", "last_run_status": "success"}]
+    with respx.mock(base_url="https://api.test") as mock:
+        mock.get("/agents/uuid-1/tasks/").mock(return_value=httpx.Response(200, json=payload))
+        client = TrmmClient.from_env()
+        result = await agent_recent_tasks(client=client, agent_id="uuid-1", n=20)
+
+    assert result[0]["name"] == "Backup"
+
+
+@pytest.mark.asyncio
+async def test_agent_patch_state_returns_categorized_kbs(trmm_env):
+    from trmm_mcp.tools.agents import agent_patch_state
+    from trmm_mcp.trmm_client import TrmmClient
+
+    payload = {
+        "installed": ["KB1"],
+        "missing": ["KB2", "KB3"],
+        "failed": [],
+        "pending_reboot": ["KB4"],
+    }
+    with respx.mock(base_url="https://api.test") as mock:
+        mock.get("/agents/uuid-1/winupdates/").mock(
+            return_value=httpx.Response(200, json=payload)
+        )
+        client = TrmmClient.from_env()
+        result = await agent_patch_state(client=client, agent_id="uuid-1")
+
+    assert result["missing"] == ["KB2", "KB3"]
+
+
+@pytest.mark.asyncio
+async def test_agent_running_processes_returns_list(trmm_env):
+    from trmm_mcp.tools.agents import agent_running_processes
+    from trmm_mcp.trmm_client import TrmmClient
+
+    payload = [{"pid": 1234, "name": "explorer.exe", "cpu": 0.1, "mem_mb": 50.2}]
+    with respx.mock(base_url="https://api.test") as mock:
+        mock.get("/agents/uuid-1/processes/").mock(
+            return_value=httpx.Response(200, json=payload)
+        )
+        client = TrmmClient.from_env()
+        result = await agent_running_processes(client=client, agent_id="uuid-1")
+
+    assert result[0]["pid"] == 1234
