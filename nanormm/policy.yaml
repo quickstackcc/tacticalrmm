@@ -28,6 +28,3 @@ tools:
 
   # Permanently gated
   run_inline_command:        human_approval
-
-  # Never agent-driven
-  uninstall_agent:           forbidden
