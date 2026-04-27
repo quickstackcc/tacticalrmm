@@ -29,3 +29,32 @@ tools:
     }
     missing = expected - set(names)
     assert not missing, f"server is missing tools: {missing}"
+
+
+def test_tool_descriptors_have_real_schemas(trmm_env, tmp_path, monkeypatch):
+    pol = tmp_path / "policy.yaml"
+    pol.write_text("version: 1\ndefault: human_approval\ntools: {}\n")
+    monkeypatch.setenv("NANORMM_POLICY_PATH", str(pol))
+
+    from trmm_mcp.server import _tool_descriptor, build_server
+
+    server = build_server()
+    for name in server.tool_registry.tool_names():
+        desc = _tool_descriptor(name)
+        # Real schemas have at least one property or no required-fields constraint
+        assert isinstance(desc.inputSchema, dict)
+        assert desc.inputSchema.get("type") == "object"
+        # Description should be non-trivial
+        assert len(desc.description) > 20, f"{name} has weak description"
+
+
+def test_kill_process_schema_requires_agent_id(trmm_env, tmp_path, monkeypatch):
+    pol = tmp_path / "policy.yaml"
+    pol.write_text("version: 1\ndefault: human_approval\ntools: {}\n")
+    monkeypatch.setenv("NANORMM_POLICY_PATH", str(pol))
+
+    from trmm_mcp.server import _tool_descriptor
+
+    desc = _tool_descriptor("kill_process")
+    assert "agent_id" in desc.inputSchema["properties"]
+    assert "agent_id" in desc.inputSchema["required"]

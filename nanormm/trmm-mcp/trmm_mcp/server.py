@@ -10,6 +10,7 @@ from mcp.types import TextContent, Tool
 
 from .approvals import ApprovalRegistry
 from .audit import AuditLog
+from .exceptions import PolicyError
 from .policy import Policy
 from .settings import Settings
 from .tools import actions, agents, alerts, clients, scripts
@@ -96,11 +97,15 @@ def _register_all(registry: ToolRegistry, trmm: TrmmClient) -> None:
 
 
 def _tool_descriptor(name: str) -> Tool:
-    """Minimal Tool descriptor — proper input schemas added in Task 19."""
+    from .tools._schemas import SCHEMAS
+
+    entry = SCHEMAS.get(name)
+    if entry is None:
+        raise PolicyError(f"no schema for tool {name}; add to tools/_schemas.py")
     return Tool(
         name=name,
-        description=f"trmm-mcp tool: {name}",
-        inputSchema={"type": "object"},
+        description=entry["description"],
+        inputSchema=entry["schema"],
     )
 
 
