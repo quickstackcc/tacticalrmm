@@ -117,5 +117,7 @@ def _serialize(payload: Any) -> str:
 
 async def run() -> None:
     server = build_server()
+    # Replay any approved-but-unexecuted actions from before a crash
+    await server.dispatcher.recover()
     async with stdio_server() as (read, write):
         await server.mcp.run(read, write, server.mcp.create_initialization_options())

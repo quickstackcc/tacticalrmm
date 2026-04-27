@@ -71,6 +71,15 @@ class ApprovalRegistry:
             update={"status": "executed", "result": result, "executed_at": _now_iso()},
         )
 
+    def iter_all(self) -> list[dict[str, Any]]:
+        """Return every action in the registry — used by Dispatcher.recover()."""
+        out: list[dict[str, Any]] = []
+        for k in self._r.scan_iter(match=f"{_KEY_PREFIX}*", count=200):
+            raw = self._r.get(k)
+            if raw is not None:
+                out.append(json.loads(raw))
+        return out
+
     def _mutate(
         self,
         action_id: str,

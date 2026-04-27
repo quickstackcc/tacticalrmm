@@ -119,3 +119,27 @@ class Dispatcher:
         self._approvals.mark_executed(action_id, result=result)
         self._audit.record_execution(action_id=action_id, result=result)
         return {"status": "executed", "result": result}
+
+    async def recover(self) -> list[str]:
+        """Replay any actions that were approved but not yet executed (post-crash recovery)."""
+        replayed: list[str] = []
+        for row in self._approvals.iter_all():
+            if row["status"] == "approved":
+                # Ensure the audit pending row exists (idempotent ON CONFLICT
+                # DO NOTHING). A real crash would have left both Redis and
+                # Postgres rows in sync, but defensive resilience here lets
+                # recover() survive partial writes or audit-DB resets.
+                self._audit.record_pending(
+                    action_id=row["action_id"],
+                    tool_name=row["tool_name"],
+                    args=row["args"],
+                    summary=row.get("summary", ""),
+                    policy_decision="human_approval",
+                )
+                try:
+                    await self.resume(row["action_id"])
+                    replayed.append(row["action_id"])
+                except (ApprovalError, PolicyError):
+                    # Tool no longer registered or row mutated — skip and log via audit
+                    continue
+        return replayed

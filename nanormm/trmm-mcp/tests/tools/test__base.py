@@ -134,3 +134,44 @@ async def test_register_lists_all_tool_names(registry_env):
         return None
 
     assert set(registry.tool_names()) == {"always_auto", "always_gated"}
+
+
+@pytest.mark.asyncio
+async def test_recover_executes_approved_actions_on_startup(registry_env, fake_redis):
+    registry, dispatcher = registry_env
+
+    captured = []
+
+    @registry.register(name="always_gated")
+    async def my_gated(x: int) -> dict:
+        captured.append(x)
+        return {"got": x}
+
+    # Simulate: action created, approved, but server crashed before executing
+    a1 = dispatcher._approvals.create(tool_name="always_gated", args={"x": 1}, summary="")
+    a2 = dispatcher._approvals.create(tool_name="always_gated", args={"x": 2}, summary="")
+    dispatcher._approvals.mark_approved(a1, approved_by="U_X")
+    dispatcher._approvals.mark_approved(a2, approved_by="U_X")
+
+    recovered = await dispatcher.recover()
+    assert set(recovered) == {a1, a2}
+    assert sorted(captured) == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_recover_skips_pending_and_rejected(registry_env):
+    registry, dispatcher = registry_env
+
+    @registry.register(name="always_gated")
+    async def my_gated(x: int) -> int:
+        return x
+
+    a1 = dispatcher._approvals.create(tool_name="always_gated", args={"x": 1}, summary="")
+    _a2 = dispatcher._approvals.create(tool_name="always_gated", args={"x": 2}, summary="")
+    a3 = dispatcher._approvals.create(tool_name="always_gated", args={"x": 3}, summary="")
+    dispatcher._approvals.mark_approved(a1, approved_by="U_X")
+    # _a2 stays pending
+    dispatcher._approvals.mark_rejected(a3, rejected_by="U_X", reason="no")
+
+    recovered = await dispatcher.recover()
+    assert recovered == [a1]
