@@ -63,9 +63,7 @@ async def unisolate_host(*, client: TrmmClient, agent_id: str) -> dict[str, Any]
     return await client.post(f"/agents/{agent_id}/unisolate/")
 
 
-async def disable_account(
-    *, client: TrmmClient, agent_id: str, username: str
-) -> dict[str, Any]:
+async def disable_account(*, client: TrmmClient, agent_id: str, username: str) -> dict[str, Any]:
     return await client.post(
         f"/agents/{agent_id}/accounts/disable/",
         json={"username": username},

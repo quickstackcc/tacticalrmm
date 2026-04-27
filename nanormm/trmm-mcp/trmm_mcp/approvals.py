@@ -33,9 +33,7 @@ class ApprovalRegistry:
         try:
             serialized = json.dumps(payload)
         except (TypeError, ValueError) as e:
-            raise ApprovalError(
-                f"cannot serialize action payload (non-JSON args?): {e}"
-            ) from e
+            raise ApprovalError(f"cannot serialize action payload (non-JSON args?): {e}") from e
         self._r.set(_key(action_id), serialized, ex=self._ttl)
         return action_id
 

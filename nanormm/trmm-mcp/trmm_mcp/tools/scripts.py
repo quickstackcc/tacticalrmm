@@ -3,9 +3,7 @@ from typing import Any
 from ..trmm_client import TrmmClient
 
 
-async def script_history(
-    *, client: TrmmClient, agent_id: str, n: int = 20
-) -> list[dict[str, Any]]:
+async def script_history(*, client: TrmmClient, agent_id: str, n: int = 20) -> list[dict[str, Any]]:
     """
     Recent agent activity history. TRMM returns all activity types
     (script_run, cmd_run, agent_install, etc.). Filter by `type` field
@@ -54,9 +52,7 @@ async def run_inline_command(
     Permanently `human_approval` in policy.yaml — never graduates to auto.
     """
     if shell not in ALLOWED_SHELLS:
-        raise ValueError(
-            f"shell must be one of {sorted(ALLOWED_SHELLS)}, got {shell!r}"
-        )
+        raise ValueError(f"shell must be one of {sorted(ALLOWED_SHELLS)}, got {shell!r}")
     return await client.post(
         f"/agents/{agent_id}/cmd/",
         json={"shell": shell, "command": command},

@@ -46,7 +46,5 @@ async def agent_patch_state(*, client: TrmmClient, agent_id: str) -> list[dict[s
     return await client.get(f"/winupdate/{agent_id}/")
 
 
-async def agent_running_processes(
-    *, client: TrmmClient, agent_id: str
-) -> list[dict[str, Any]]:
+async def agent_running_processes(*, client: TrmmClient, agent_id: str) -> list[dict[str, Any]]:
     return await client.get(f"/agents/{agent_id}/processes/")

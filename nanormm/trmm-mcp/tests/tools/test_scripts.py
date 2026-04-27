@@ -13,9 +13,7 @@ async def test_script_history_returns_agent_history(trmm_env):
         {"id": 2, "type": "cmd_run", "command": "ipconfig"},
     ]
     with respx.mock(base_url="https://api.test") as mock:
-        mock.get("/agents/uuid-1/history/").mock(
-            return_value=httpx.Response(200, json=payload)
-        )
+        mock.get("/agents/uuid-1/history/").mock(return_value=httpx.Response(200, json=payload))
         client = TrmmClient.from_env()
         result = await script_history(client=client, agent_id="uuid-1", n=20)
 

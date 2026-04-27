@@ -39,9 +39,7 @@ def build_server() -> TrmmMcpServer:
     registry = ToolRegistry()
     _register_all(registry, trmm)
 
-    dispatcher = Dispatcher(
-        registry=registry, policy=policy, approvals=approvals, audit=audit
-    )
+    dispatcher = Dispatcher(registry=registry, policy=policy, approvals=approvals, audit=audit)
 
     mcp = Server("trmm-mcp")
 
@@ -54,9 +52,7 @@ def build_server() -> TrmmMcpServer:
         result = await dispatcher.dispatch(name, arguments)
         return [TextContent(type="text", text=_serialize(result))]
 
-    return TrmmMcpServer(
-        mcp=mcp, tool_registry=registry, dispatcher=dispatcher, trmm_client=trmm
-    )
+    return TrmmMcpServer(mcp=mcp, tool_registry=registry, dispatcher=dispatcher, trmm_client=trmm)
 
 
 def _register_all(registry: ToolRegistry, trmm: TrmmClient) -> None:

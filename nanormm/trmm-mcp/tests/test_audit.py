@@ -59,9 +59,7 @@ def test_record_approval_updates_row(audit_dsn: str):
     from trmm_mcp.audit import AuditLog
 
     log = AuditLog(audit_dsn)
-    log.record_pending(
-        action_id="act_z", tool_name="x", args={}, policy_decision="human_approval"
-    )
+    log.record_pending(action_id="act_z", tool_name="x", args={}, policy_decision="human_approval")
     log.record_approval(action_id="act_z", approved_by="U_SLACK_42")
     row = _row(audit_dsn, "act_z")
     assert row["approved_by"] == "U_SLACK_42"
@@ -83,9 +81,7 @@ def test_record_rejection_updates_row(audit_dsn: str):
     from trmm_mcp.audit import AuditLog
 
     log = AuditLog(audit_dsn)
-    log.record_pending(
-        action_id="act_r", tool_name="x", args={}, policy_decision="human_approval"
-    )
+    log.record_pending(action_id="act_r", tool_name="x", args={}, policy_decision="human_approval")
     log.record_rejection(action_id="act_r", rejected_by="U_X", reason="nope")
     row = _row(audit_dsn, "act_r")
     assert row["rejected_by"] == "U_X"

@@ -84,8 +84,7 @@ class AuditLog:
             cur.execute(sql, params)
             if cur.rowcount == 0:
                 raise AuditLogError(
-                    f"no audit row for action_id {action_id!r}; "
-                    f"record_pending must be called first"
+                    f"no audit row for action_id {action_id!r}; record_pending must be called first"
                 )
 
     @contextmanager

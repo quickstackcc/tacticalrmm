@@ -16,9 +16,7 @@ async def test_list_alerts_returns_dashboard_payload(trmm_env):
         ],
     }
     with respx.mock(base_url="https://api.test") as mock:
-        route = mock.patch("/alerts/").mock(
-            return_value=httpx.Response(200, json=fake_payload)
-        )
+        route = mock.patch("/alerts/").mock(return_value=httpx.Response(200, json=fake_payload))
         client = TrmmClient.from_env()
         result = await list_alerts(client=client)
 
@@ -83,9 +81,7 @@ async def test_search_past_alerts_uses_time_filter(trmm_env):
             return_value=httpx.Response(200, json={"alerts_count": 0, "alerts": []})
         )
         client = TrmmClient.from_env()
-        await search_past_alerts(
-            client=client, agent_id="abc", since="2026-04-01T00:00:00Z"
-        )
+        await search_past_alerts(client=client, agent_id="abc", since="2026-04-01T00:00:00Z")
 
     body = route.calls.last.request.content
     # timeFilter is TRMM's days-back integer, not the original ISO string
@@ -108,9 +104,7 @@ async def test_acknowledge_alert_patches_with_note(trmm_env):
             return_value=httpx.Response(200, json={"id": 42, "resolved": True})
         )
         client = TrmmClient.from_env()
-        result = await acknowledge_alert(
-            client=client, alert_id=42, note="handled via nanormm"
-        )
+        result = await acknowledge_alert(client=client, alert_id=42, note="handled via nanormm")
 
     assert result["resolved"] is True
     body = route.calls.last.request.content

@@ -23,6 +23,7 @@ Known gaps (deferred to Task 21 — replay safety):
 - Tool-execution exceptions in ``dispatch`` (AUTO branch) and ``resume``
   propagate raw and do not record a "failed" entry in the audit trail.
 """
+
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -89,9 +90,7 @@ class Dispatcher:
             return {"status": "executed", "result": result}
 
         # human_approval
-        action_id = self._approvals.create(
-            tool_name=tool_name, args=args, summary=summary
-        )
+        action_id = self._approvals.create(tool_name=tool_name, args=args, summary=summary)
         self._audit.record_pending(
             action_id=action_id,
             tool_name=tool_name,
@@ -107,9 +106,7 @@ class Dispatcher:
         if pending is None:
             raise ApprovalError(f"unknown or expired action: {action_id}")
         if pending["status"] != "approved":
-            raise ApprovalError(
-                f"action {action_id} is {pending['status']}, not approved"
-            )
+            raise ApprovalError(f"action {action_id} is {pending['status']}, not approved")
 
         fn = self._registry.get(pending["tool_name"])
         if fn is None:

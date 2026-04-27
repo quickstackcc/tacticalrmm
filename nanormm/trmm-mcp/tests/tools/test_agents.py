@@ -99,9 +99,7 @@ async def test_agent_patch_state_returns_winupdate_list(trmm_env):
         {"id": 2, "kb": "KB2", "title": "Update 2", "installed": False},
     ]
     with respx.mock(base_url="https://api.test") as mock:
-        mock.get("/winupdate/uuid-1/").mock(
-            return_value=httpx.Response(200, json=payload)
-        )
+        mock.get("/winupdate/uuid-1/").mock(return_value=httpx.Response(200, json=payload))
         client = TrmmClient.from_env()
         result = await agent_patch_state(client=client, agent_id="uuid-1")
 
@@ -116,9 +114,7 @@ async def test_agent_running_processes_returns_list(trmm_env):
 
     payload = [{"pid": 1234, "name": "explorer.exe", "cpu": 0.1, "mem_mb": 50.2}]
     with respx.mock(base_url="https://api.test") as mock:
-        mock.get("/agents/uuid-1/processes/").mock(
-            return_value=httpx.Response(200, json=payload)
-        )
+        mock.get("/agents/uuid-1/processes/").mock(return_value=httpx.Response(200, json=payload))
         client = TrmmClient.from_env()
         result = await agent_running_processes(client=client, agent_id="uuid-1")
 

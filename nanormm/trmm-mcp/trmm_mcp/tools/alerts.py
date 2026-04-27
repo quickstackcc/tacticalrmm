@@ -72,9 +72,7 @@ async def search_past_alerts(
     return await client.patch("/alerts/", json={"timeFilter": _iso_to_days_back(since)})
 
 
-async def acknowledge_alert(
-    *, client: TrmmClient, alert_id: int, note: str = ""
-) -> dict[str, Any]:
+async def acknowledge_alert(*, client: TrmmClient, alert_id: int, note: str = "") -> dict[str, Any]:
     return await client.patch(
         f"/alerts/{alert_id}/", json={"resolved": True, "resolution_notes": note}
     )

@@ -43,15 +43,14 @@ async def test_auto_tool_executes_immediately(registry_env):
 @pytest.mark.asyncio
 async def test_gated_tool_returns_pending_and_writes_audit(registry_env, audit_dsn):
     import psycopg
+
     registry, dispatcher = registry_env
 
     @registry.register(name="always_gated")
     async def my_gated(x: int) -> int:
         return x * 10
 
-    result = await dispatcher.dispatch(
-        "always_gated", {"x": 5}, summary="Multiply 5 by 10"
-    )
+    result = await dispatcher.dispatch("always_gated", {"x": 5}, summary="Multiply 5 by 10")
     assert result["status"] == "pending"
     assert result["action_id"].startswith("act_")
     assert result["summary"] == "Multiply 5 by 10"
@@ -78,6 +77,7 @@ async def test_forbidden_tool_returns_denied(registry_env):
 @pytest.mark.asyncio
 async def test_unknown_tool_raises(registry_env):
     from trmm_mcp.exceptions import PolicyError
+
     registry, dispatcher = registry_env
 
     with pytest.raises(PolicyError):
@@ -110,6 +110,7 @@ async def test_resume_executes_approved_action(registry_env, fake_redis):
 @pytest.mark.asyncio
 async def test_resume_rejects_unapproved_action(registry_env):
     from trmm_mcp.exceptions import ApprovalError
+
     registry, dispatcher = registry_env
 
     @registry.register(name="always_gated")

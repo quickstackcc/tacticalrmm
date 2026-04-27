@@ -56,9 +56,7 @@ async def test_restart_service(trmm_env):
             return_value=httpx.Response(200, json={"status": "restarted"})
         )
         client = TrmmClient.from_env()
-        result = await restart_service(
-            client=client, agent_id="uuid-1", service_name="W3SVC"
-        )
+        result = await restart_service(client=client, agent_id="uuid-1", service_name="W3SVC")
     assert result["status"] == "restarted"
     assert b'"service_name":"W3SVC"' in route.calls.last.request.content
 
@@ -101,9 +99,7 @@ async def test_collect_artifacts_rejects_unknown_set(trmm_env):
 
     client = TrmmClient.from_env()
     with pytest.raises(ValueError):
-        await collect_artifacts(
-            client=client, agent_id="uuid-1", artifact_set="my_made_up_set"
-        )
+        await collect_artifacts(client=client, agent_id="uuid-1", artifact_set="my_made_up_set")
 
 
 @pytest.mark.asyncio
@@ -144,9 +140,7 @@ async def test_disable_account(trmm_env):
             return_value=httpx.Response(200, json={"disabled": True})
         )
         client = TrmmClient.from_env()
-        result = await disable_account(
-            client=client, agent_id="uuid-1", username="bad-actor"
-        )
+        result = await disable_account(client=client, agent_id="uuid-1", username="bad-actor")
     assert result == {"disabled": True}
     assert b'"username":"bad-actor"' in route.calls.last.request.content
 
@@ -161,7 +155,5 @@ async def test_pause_scheduled_task(trmm_env):
             return_value=httpx.Response(200, json={"paused": True})
         )
         client = TrmmClient.from_env()
-        result = await pause_scheduled_task(
-            client=client, agent_id="uuid-1", task_id=77
-        )
+        result = await pause_scheduled_task(client=client, agent_id="uuid-1", task_id=77)
     assert result == {"paused": True}
