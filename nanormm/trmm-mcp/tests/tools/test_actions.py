@@ -132,3 +132,36 @@ async def test_unisolate_host(trmm_env):
         client = TrmmClient.from_env()
         result = await unisolate_host(client=client, agent_id="uuid-1")
     assert result == {"isolated": False}
+
+
+@pytest.mark.asyncio
+async def test_disable_account(trmm_env):
+    from trmm_mcp.tools.actions import disable_account
+    from trmm_mcp.trmm_client import TrmmClient
+
+    with respx.mock(base_url="https://api.test") as mock:
+        route = mock.post("/agents/uuid-1/accounts/disable/").mock(
+            return_value=httpx.Response(200, json={"disabled": True})
+        )
+        client = TrmmClient.from_env()
+        result = await disable_account(
+            client=client, agent_id="uuid-1", username="bad-actor"
+        )
+    assert result == {"disabled": True}
+    assert b'"username":"bad-actor"' in route.calls.last.request.content
+
+
+@pytest.mark.asyncio
+async def test_pause_scheduled_task(trmm_env):
+    from trmm_mcp.tools.actions import pause_scheduled_task
+    from trmm_mcp.trmm_client import TrmmClient
+
+    with respx.mock(base_url="https://api.test") as mock:
+        mock.post("/agents/uuid-1/tasks/77/pause/").mock(
+            return_value=httpx.Response(200, json={"paused": True})
+        )
+        client = TrmmClient.from_env()
+        result = await pause_scheduled_task(
+            client=client, agent_id="uuid-1", task_id=77
+        )
+    assert result == {"paused": True}
