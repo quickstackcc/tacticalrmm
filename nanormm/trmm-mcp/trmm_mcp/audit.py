@@ -34,15 +34,16 @@ class AuditLog:
         tool_name: str,
         args: dict[str, Any],
         policy_decision: str,
+        summary: str = "",
     ) -> None:
         with self._cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO nanormm_actions (action_id, tool_name, args, policy_decision)
-                VALUES (%s, %s, %s::jsonb, %s)
+                INSERT INTO nanormm_actions (action_id, tool_name, args, summary, policy_decision)
+                VALUES (%s, %s, %s::jsonb, %s, %s)
                 ON CONFLICT (action_id) DO NOTHING
                 """,
-                (action_id, tool_name, json.dumps(args), policy_decision),
+                (action_id, tool_name, json.dumps(args), summary, policy_decision),
             )
 
     def record_approval(self, *, action_id: str, approved_by: str) -> None:

@@ -1,3 +1,28 @@
+"""
+Tool registry and policy/approval/audit dispatcher — the architectural heart
+of the trmm-mcp policy gate.
+
+Every tool call from the MCP server routes through ``Dispatcher.dispatch()``,
+which consults ``Policy`` for the tool's authority and routes accordingly:
+
+- ``Authority.AUTO``         → execute immediately, return executed result.
+- ``Authority.FORBIDDEN``    → return denied response, do not execute.
+- ``Authority.HUMAN_APPROVAL`` → create pending row in ``ApprovalRegistry``
+                                 and ``AuditLog``, return pending response.
+
+After a human approves a pending action (via Plan 2's approval-bridge),
+``Dispatcher.resume()`` is called: it reads the approved row from the
+registry, looks up the registered function, executes it, and records the
+result to both stores.
+
+Known gaps (deferred to Task 21 — replay safety):
+
+- No atomic transaction across the Redis approvals store and the Postgres
+  audit log. If audit write fails after Redis create succeeds, the action
+  becomes orphaned in Redis (TTL cleans up after 30 min).
+- Tool-execution exceptions in ``dispatch`` (AUTO branch) and ``resume``
+  propagate raw and do not record a "failed" entry in the audit trail.
+"""
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -71,6 +96,7 @@ class Dispatcher:
             action_id=action_id,
             tool_name=tool_name,
             args=args,
+            summary=summary,
             policy_decision=authority.value,
         )
         return {"status": "pending", "action_id": action_id, "summary": summary}

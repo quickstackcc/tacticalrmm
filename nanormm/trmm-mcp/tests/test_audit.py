@@ -117,3 +117,22 @@ def test_record_rejection_on_missing_action_raises(audit_dsn: str):
     log = AuditLog(audit_dsn)
     with pytest.raises(AuditLogError, match="no audit row"):
         log.record_rejection(action_id="act_does_not_exist", rejected_by="U_X", reason="x")
+
+
+def test_record_pending_persists_summary(audit_dsn: str):
+    import psycopg
+
+    from trmm_mcp.audit import AuditLog
+
+    log = AuditLog(audit_dsn)
+    log.record_pending(
+        action_id="act_s",
+        tool_name="kill_process",
+        args={"pid": 1},
+        policy_decision="human_approval",
+        summary="Kill PID 1 — recovering from runaway",
+    )
+    with psycopg.connect(audit_dsn) as conn, conn.cursor() as cur:
+        cur.execute("SELECT summary FROM nanormm_actions WHERE action_id = 'act_s'")
+        row = cur.fetchone()
+    assert row == ("Kill PID 1 — recovering from runaway",)

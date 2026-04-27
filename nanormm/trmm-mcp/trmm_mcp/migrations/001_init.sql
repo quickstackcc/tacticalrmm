@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS nanormm_actions (
     action_id       TEXT NOT NULL UNIQUE,
     tool_name       TEXT NOT NULL,
     args            JSONB NOT NULL,
+    summary         TEXT NOT NULL DEFAULT '',
     policy_decision TEXT NOT NULL,
     pending_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     approved_by     TEXT,

@@ -57,9 +57,9 @@ async def test_gated_tool_returns_pending_and_writes_audit(registry_env, audit_d
     assert result["summary"] == "Multiply 5 by 10"
 
     with psycopg.connect(audit_dsn) as conn, conn.cursor() as cur:
-        cur.execute("SELECT tool_name, policy_decision FROM nanormm_actions")
+        cur.execute("SELECT tool_name, policy_decision, summary FROM nanormm_actions")
         row = cur.fetchone()
-    assert row == ("always_gated", "human_approval")
+    assert row == ("always_gated", "human_approval", "Multiply 5 by 10")
 
 
 @pytest.mark.asyncio
