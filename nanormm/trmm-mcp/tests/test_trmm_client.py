@@ -103,3 +103,40 @@ async def test_get_wraps_invalid_json_as_trmm_api_error(trmm_env):
         with pytest.raises(TrmmApiError) as exc_info:
             await client.get("/agents/")
         assert exc_info.value.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_post_sends_json_body(trmm_env):
+    from trmm_mcp.trmm_client import TrmmClient
+
+    with respx.mock(base_url="https://api.test") as mock:
+        route = mock.post("/scripts/run/").mock(return_value=httpx.Response(200, json={"id": 1}))
+        client = TrmmClient.from_env()
+        result = await client.post("/scripts/run/", json={"agent": "a", "script_id": 7})
+        assert result == {"id": 1}
+        assert route.calls.last.request.content == b'{"agent":"a","script_id":7}'
+
+
+@pytest.mark.asyncio
+async def test_post_returns_none_on_empty_body(trmm_env):
+    from trmm_mcp.trmm_client import TrmmClient
+
+    with respx.mock(base_url="https://api.test") as mock:
+        mock.post("/agents/x/reboot/").mock(return_value=httpx.Response(204))
+        client = TrmmClient.from_env()
+        result = await client.post("/agents/x/reboot/")
+        assert result is None
+
+
+@pytest.mark.asyncio
+async def test_patch_sends_partial_update(trmm_env):
+    from trmm_mcp.trmm_client import TrmmClient
+
+    with respx.mock(base_url="https://api.test") as mock:
+        route = mock.patch("/alerts/42/").mock(
+            return_value=httpx.Response(200, json={"acked": True})
+        )
+        client = TrmmClient.from_env()
+        result = await client.patch("/alerts/42/", json={"acked": True})
+        assert result == {"acked": True}
+        assert route.calls.last.request.method == "PATCH"
