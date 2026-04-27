@@ -75,3 +75,31 @@ async def test_get_passes_query_params(trmm_env):
         sent = route.calls.last.request
         assert sent.url.params["online"] == "true"
         assert sent.url.params["client"] == "5"
+
+
+@pytest.mark.asyncio
+async def test_get_wraps_network_error_as_trmm_api_error(trmm_env):
+    from trmm_mcp.exceptions import TrmmApiError
+    from trmm_mcp.trmm_client import TrmmClient
+
+    with respx.mock(base_url="https://api.test") as mock:
+        mock.get("/agents/").mock(side_effect=httpx.ConnectError("dns fail"))
+        client = TrmmClient.from_env()
+        with pytest.raises(TrmmApiError) as exc_info:
+            await client.get("/agents/")
+        assert exc_info.value.status_code == 0
+        msg = str(exc_info.value).lower()
+        assert "network error" in msg or "dns fail" in msg
+
+
+@pytest.mark.asyncio
+async def test_get_wraps_invalid_json_as_trmm_api_error(trmm_env):
+    from trmm_mcp.exceptions import TrmmApiError
+    from trmm_mcp.trmm_client import TrmmClient
+
+    with respx.mock(base_url="https://api.test") as mock:
+        mock.get("/agents/").mock(return_value=httpx.Response(200, text="<html>oops</html>"))
+        client = TrmmClient.from_env()
+        with pytest.raises(TrmmApiError) as exc_info:
+            await client.get("/agents/")
+        assert exc_info.value.status_code == 200
