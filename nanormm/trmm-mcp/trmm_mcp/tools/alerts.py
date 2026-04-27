@@ -34,3 +34,11 @@ async def search_past_alerts(
     since: str,
 ) -> list[dict[str, Any]]:
     return await client.get("/alerts/", params={"agent": agent_id, "since": since})
+
+
+async def acknowledge_alert(
+    *, client: TrmmClient, alert_id: int, note: str = ""
+) -> dict[str, Any]:
+    return await client.patch(
+        f"/alerts/{alert_id}/", json={"resolved": True, "resolution_notes": note}
+    )

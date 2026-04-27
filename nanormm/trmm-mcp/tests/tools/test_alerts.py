@@ -95,3 +95,23 @@ async def test_search_past_alerts_filters_by_agent_and_since(trmm_env):
     sent = route.calls.last.request
     assert sent.url.params["agent"] == "abc"
     assert sent.url.params["since"] == "2026-04-01T00:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_alert_patches_with_note(trmm_env):
+    from trmm_mcp.tools.alerts import acknowledge_alert
+    from trmm_mcp.trmm_client import TrmmClient
+
+    with respx.mock(base_url="https://api.test") as mock:
+        route = mock.patch("/alerts/42/").mock(
+            return_value=httpx.Response(200, json={"id": 42, "resolved": True})
+        )
+        client = TrmmClient.from_env()
+        result = await acknowledge_alert(
+            client=client, alert_id=42, note="handled via nanormm"
+        )
+
+    assert result["resolved"] is True
+    body = route.calls.last.request.content
+    assert b'"resolved":true' in body
+    assert b"handled via nanormm" in body
