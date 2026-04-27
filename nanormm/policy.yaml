@@ -1,0 +1,33 @@
+version: 1
+default: human_approval
+tools:
+  # Read tools — always auto
+  list_alerts:               auto
+  get_alert:                 auto
+  list_agents:               auto
+  get_agent:                 auto
+  agent_recent_checks:       auto
+  agent_recent_tasks:        auto
+  agent_patch_state:         auto
+  agent_running_processes:   auto
+  query_clients:             auto
+  script_history:            auto
+  search_past_alerts:        auto
+
+  # Write tools — gated at launch
+  acknowledge_alert:         human_approval
+  collect_artifacts:         human_approval
+  kill_process:              human_approval
+  restart_service:           human_approval
+  reboot_agent:              human_approval
+  isolate_host:              human_approval
+  unisolate_host:            human_approval
+  disable_account:           human_approval
+  pause_scheduled_task:      human_approval
+  run_script_on_agent:       human_approval
+
+  # Permanently gated
+  run_inline_command:        human_approval
+
+  # Never agent-driven
+  uninstall_agent:           forbidden
