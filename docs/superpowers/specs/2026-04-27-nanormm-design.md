@@ -183,6 +183,31 @@ Receives Slack interaction events (button clicks). Validates Slack signing-secre
 
 Why a separate container instead of folding into `trmm-mcp`: keeps the MCP server pure (no inbound HTTP), scopes the public-facing route (under nginx `/nanormm/slack/interactions`) narrowly, and makes the auth surface (Slack signature validation) easy to reason about in isolation.
 
+## Model selection & routing
+
+All agent traffic uses Anthropic's Claude models, billed via **Google Cloud Vertex AI** rather than Anthropic-direct. nanoclaw already supports this — set `CLAUDE_CODE_USE_VERTEX=1` and its Agent SDK switches to Vertex's Claude endpoints. Required env vars (from nanoclaw's `container-runner.ts`):
+
+```
+CLAUDE_CODE_USE_VERTEX=1
+ANTHROPIC_VERTEX_PROJECT_ID=qsrmm-494222
+CLOUD_ML_REGION=us-central1
+ANTHROPIC_DEFAULT_MODEL=<per-bot>
+```
+
+**Why Vertex over Anthropic-direct:** keeps spend inside the existing GCP project (`qsrmm-494222`), eligible for Google Cloud commit discounts and credits, regional residency in the same region as the TRMM VM (`us-central1`), single billing surface alongside the rest of the deployment. Authentication uses GCP Application Default Credentials via the VM's attached service account (Workload Identity) — no Anthropic API key required.
+
+**Per-bot model tiering:**
+
+| Bot | Default model | Why |
+|---|---|---|
+| `recon` | `claude-haiku-4-5` | High volume (every alert), focused enrichment + drafting workload. ~25× cheaper than Opus per token; plenty of capability for the tool-call chains involved. |
+| `operator` | `claude-sonnet-4-6` | Interactive tech sessions where quality > volume. |
+| escalation | `claude-opus-4-7` | Reserved for multi-step investigations; either an explicit `@operator use opus` toggle or auto-promote when a tool-use chain crosses a depth threshold. Wiring deferred to implementation. |
+
+Per-bot model setting lives in `nanoclaw-config/recon.yaml` and `nanoclaw-config/operator.yaml`. The `claude-mem`-style escalation toggle is a v1.1 nicety, not a launch requirement.
+
+**Non-Claude providers explicitly out of scope.** nanoclaw's strongest runtime path is Claude-via-Anthropic-SDK; OpenRouter / OpenCode / Ollama / Gemini bypass it and lose orchestration features. Revisit only if real operational cost data shows the Vertex + Haiku floor is still too expensive — and even then, prefer pricing/contract levers (commit discounts, batch pricing) before swapping providers.
+
 ## Data flow
 
 ### Recon path (alert-triggered)
@@ -252,7 +277,7 @@ nanormm/
 
 - **Containers:** `trmm-mcp`, `nanoclaw-recon`, `nanoclaw-operator`, `approval-bridge`. All on `nanormm_default` Docker network. `trmm-mcp` has no published ports. `approval-bridge` exposes one port; nginx adds a `location /nanormm/slack/interactions` block.
 - **Shared with TRMM stack:** Postgres (new `nanormm` DB), Redis (DB index 11; TRMM owns 10), nginx.
-- **Secrets:** TRMM Knox service-account token, Slack signing secret, Slack bot tokens (×2), Anthropic API key — all from GCP Secret Manager via init-script-injected Docker secrets. No secrets in env files in the repo.
+- **Secrets:** TRMM Knox service-account token, Slack signing secret, Slack bot tokens (×2) — all from GCP Secret Manager via init-script-injected Docker secrets. **No Anthropic API key needed** — Claude is reached via Vertex AI using the VM's attached GCP service account (Workload Identity / ADC). The service account needs `roles/aiplatform.user` on the `qsrmm-494222` project. No secrets in env files in the repo.
 - **Sizing:** stay on `e2-standard-2` at launch. Resize to `e2-standard-4` if free memory drops below ~500 MB sustained.
 - **Backups:** `nanormm` Postgres DB joins existing daily backup cron to `gs://qsrmm-backups`. `policy.yaml` covered by git. Redis pending-approvals are ephemeral by design.
 
@@ -268,6 +293,7 @@ nanormm/
 - Exact Slack interaction wiring (Bolt SDK vs. raw events) — both work; pick during nanoclaw config.
 - Whether to model `nanormm` as a separate Django app inside `api/tacticalrmm/` for the audit table, or use a standalone DB schema with `psycopg` directly. Leaning standalone to keep TRMM core untouched.
 - Synthetic alert smoke-test wiring — needs a sandbox client in TRMM that doesn't pollute real metrics.
+- Opus escalation mechanism for `operator` — explicit toggle (`@operator use opus`) vs. auto-promote on tool-call depth threshold. v1.1 nicety, not launch-blocking.
 
 ## Decisions log
 
@@ -283,3 +309,5 @@ nanormm/
 | `run_script_on_agent` | `script_id` only, never script body | Supply-chain hygiene; script review stays in TRMM's existing workflow |
 | `run_inline_command` | Permanently `human_approval` | Too broad to ever auto-grant |
 | Names | `recon` (alerts) + `operator` (tech) | Avoid Microsoft "copilot" overuse; pair semantically with the roles |
+| Model provider | Claude only (via Vertex AI) | nanoclaw's runtime is Claude-native; non-Claude paths bypass orchestration features. Vertex routing keeps billing on GCP and uses Workload Identity instead of an API key |
+| Per-bot model tier | Haiku (`recon`) / Sonnet (`operator`) / Opus (escalation) | Match model cost to traffic profile and quality need; revisit with real ops data |
