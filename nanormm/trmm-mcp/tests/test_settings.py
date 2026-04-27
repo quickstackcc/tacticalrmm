@@ -18,7 +18,7 @@ def test_settings_loads_required_fields():
         s = Settings()
 
     assert s.trmm_api_base == "https://api.example.com"
-    assert s.trmm_api_token == "tok123"
+    assert s.trmm_api_token == "tok123"  # noqa: S105 - test fixture value
     assert str(s.policy_path) == "/etc/nanormm/policy.yaml"
     assert s.redis_url == "redis://localhost:6379/11"
     assert s.audit_dsn == "postgresql://u:p@h:5432/d"
@@ -42,8 +42,9 @@ def test_settings_strips_trailing_slash_on_api_base():
 
 
 def test_settings_missing_required_raises():
+    from pydantic import ValidationError  # noqa: I001 - kept inside test for isolation
     from trmm_mcp.settings import Settings
 
     with patch.dict(os.environ, {}, clear=True):
-        with pytest.raises(Exception):  # pydantic ValidationError
+        with pytest.raises(ValidationError):
             Settings()

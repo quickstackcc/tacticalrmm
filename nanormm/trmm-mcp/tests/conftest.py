@@ -10,7 +10,7 @@ def trmm_env():
     env = {
         "TRMM_API_BASE": "https://api.test",
         "TRMM_API_TOKEN": "test-token",
-        "NANORMM_POLICY_PATH": "/tmp/policy.yaml",
+        "NANORMM_POLICY_PATH": "/tmp/policy.yaml",  # noqa: S108 - test fixture path, never opened
         "NANORMM_REDIS_URL": "redis://localhost:6379/15",
         "NANORMM_AUDIT_DSN": "postgresql://u:p@h:5432/d",
     }

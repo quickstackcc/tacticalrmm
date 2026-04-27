@@ -1,8 +1,5 @@
-import pytest
-
-
 def test_exception_hierarchy():
-    from trmm_mcp.exceptions import (
+    from trmm_mcp.exceptions import (  # noqa: I001 - kept inside test for isolation
         NanormmError,
         TrmmApiError,
         TrmmAuthError,
