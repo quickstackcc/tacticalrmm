@@ -60,3 +60,5 @@ setup_dev.yml
 query_schema.json
 gunicorn_config.py
 set_local_config.py
+# nanormm worktrees (Quick Stack)
+.worktrees/
