@@ -1,4 +1,5 @@
 import psycopg
+import pytest
 
 
 def _row(dsn: str, action_id: str) -> dict:
@@ -88,3 +89,31 @@ def test_record_rejection_updates_row(audit_dsn: str):
     log.record_rejection(action_id="act_r", rejected_by="U_X", reason="nope")
     row = _row(audit_dsn, "act_r")
     assert row["rejected_by"] == "U_X"
+
+
+def test_record_approval_on_missing_action_raises(audit_dsn: str):
+    """Audit-trail integrity: UPDATE-on-nothing must raise, not silently succeed."""
+    from trmm_mcp.audit import AuditLog
+    from trmm_mcp.exceptions import AuditLogError
+
+    log = AuditLog(audit_dsn)
+    with pytest.raises(AuditLogError, match="no audit row"):
+        log.record_approval(action_id="act_does_not_exist", approved_by="U_X")
+
+
+def test_record_execution_on_missing_action_raises(audit_dsn: str):
+    from trmm_mcp.audit import AuditLog
+    from trmm_mcp.exceptions import AuditLogError
+
+    log = AuditLog(audit_dsn)
+    with pytest.raises(AuditLogError, match="no audit row"):
+        log.record_execution(action_id="act_does_not_exist", result={"x": 1})
+
+
+def test_record_rejection_on_missing_action_raises(audit_dsn: str):
+    from trmm_mcp.audit import AuditLog
+    from trmm_mcp.exceptions import AuditLogError
+
+    log = AuditLog(audit_dsn)
+    with pytest.raises(AuditLogError, match="no audit row"):
+        log.record_rejection(action_id="act_does_not_exist", rejected_by="U_X", reason="x")

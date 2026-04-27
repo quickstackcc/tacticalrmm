@@ -6,6 +6,7 @@ def test_exception_hierarchy():
         TrmmNotFoundError,
         PolicyError,
         ApprovalError,
+        AuditLogError,
     )
 
     assert issubclass(TrmmApiError, NanormmError)
@@ -13,6 +14,7 @@ def test_exception_hierarchy():
     assert issubclass(TrmmNotFoundError, TrmmApiError)
     assert issubclass(PolicyError, NanormmError)
     assert issubclass(ApprovalError, NanormmError)
+    assert issubclass(AuditLogError, NanormmError)
 
 
 def test_trmm_api_error_carries_status_and_url():

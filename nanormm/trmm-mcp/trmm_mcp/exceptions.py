@@ -23,3 +23,7 @@ class PolicyError(NanormmError):
 
 class ApprovalError(NanormmError):
     """Approval registry error (Redis unreachable, bad state, expired)."""
+
+
+class AuditLogError(NanormmError):
+    """Audit log write failed (Postgres unreachable, missing row, integrity violation)."""
