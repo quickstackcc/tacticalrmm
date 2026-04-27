@@ -75,3 +75,60 @@ async def test_reboot_agent(trmm_env):
         client = TrmmClient.from_env()
         result = await reboot_agent(client=client, agent_id="uuid-1")
     assert result == {"queued": True}
+
+
+@pytest.mark.asyncio
+async def test_collect_artifacts_known_set(trmm_env):
+    from trmm_mcp.tools.actions import collect_artifacts
+    from trmm_mcp.trmm_client import TrmmClient
+
+    with respx.mock(base_url="https://api.test") as mock:
+        route = mock.post("/agents/uuid-1/artifacts/collect/").mock(
+            return_value=httpx.Response(202, json={"job_id": "j1"})
+        )
+        client = TrmmClient.from_env()
+        result = await collect_artifacts(
+            client=client, agent_id="uuid-1", artifact_set="event_logs"
+        )
+    assert result["job_id"] == "j1"
+    assert b'"artifact_set":"event_logs"' in route.calls.last.request.content
+
+
+@pytest.mark.asyncio
+async def test_collect_artifacts_rejects_unknown_set(trmm_env):
+    from trmm_mcp.tools.actions import collect_artifacts
+    from trmm_mcp.trmm_client import TrmmClient
+
+    client = TrmmClient.from_env()
+    with pytest.raises(ValueError):
+        await collect_artifacts(
+            client=client, agent_id="uuid-1", artifact_set="my_made_up_set"
+        )
+
+
+@pytest.mark.asyncio
+async def test_isolate_host(trmm_env):
+    from trmm_mcp.tools.actions import isolate_host
+    from trmm_mcp.trmm_client import TrmmClient
+
+    with respx.mock(base_url="https://api.test") as mock:
+        mock.post("/agents/uuid-1/isolate/").mock(
+            return_value=httpx.Response(200, json={"isolated": True})
+        )
+        client = TrmmClient.from_env()
+        result = await isolate_host(client=client, agent_id="uuid-1")
+    assert result == {"isolated": True}
+
+
+@pytest.mark.asyncio
+async def test_unisolate_host(trmm_env):
+    from trmm_mcp.tools.actions import unisolate_host
+    from trmm_mcp.trmm_client import TrmmClient
+
+    with respx.mock(base_url="https://api.test") as mock:
+        mock.post("/agents/uuid-1/unisolate/").mock(
+            return_value=httpx.Response(200, json={"isolated": False})
+        )
+        client = TrmmClient.from_env()
+        result = await unisolate_host(client=client, agent_id="uuid-1")
+    assert result == {"isolated": False}

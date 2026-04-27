@@ -31,3 +31,33 @@ async def restart_service(
 
 async def reboot_agent(*, client: TrmmClient, agent_id: str) -> dict[str, Any]:
     return await client.post(f"/agents/{agent_id}/reboot/")
+
+
+ALLOWED_ARTIFACT_SETS = {
+    "event_logs",
+    "process_list",
+    "network_connections",
+    "scheduled_tasks",
+    "installed_software",
+}
+
+
+async def collect_artifacts(
+    *, client: TrmmClient, agent_id: str, artifact_set: str
+) -> dict[str, Any]:
+    if artifact_set not in ALLOWED_ARTIFACT_SETS:
+        raise ValueError(
+            f"unknown artifact_set {artifact_set!r}; must be one of {sorted(ALLOWED_ARTIFACT_SETS)}"
+        )
+    return await client.post(
+        f"/agents/{agent_id}/artifacts/collect/",
+        json={"artifact_set": artifact_set},
+    )
+
+
+async def isolate_host(*, client: TrmmClient, agent_id: str) -> dict[str, Any]:
+    return await client.post(f"/agents/{agent_id}/isolate/")
+
+
+async def unisolate_host(*, client: TrmmClient, agent_id: str) -> dict[str, Any]:
+    return await client.post(f"/agents/{agent_id}/unisolate/")
