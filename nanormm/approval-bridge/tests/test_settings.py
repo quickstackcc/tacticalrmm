@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from approval_bridge.settings import BridgeSettings
 
@@ -39,7 +40,7 @@ def test_loads_required_env_vars(monkeypatch, base_env):
 def test_missing_api_key_raises(monkeypatch, base_env):
     monkeypatch.delenv("NANORMM_BRIDGE_API_KEY", raising=False)
 
-    with pytest.raises(Exception) as exc:
+    with pytest.raises(ValidationError) as exc:
         BridgeSettings()
 
     msg = str(exc.value).lower()
