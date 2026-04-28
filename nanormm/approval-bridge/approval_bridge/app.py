@@ -1,17 +1,12 @@
 from fastapi import FastAPI
 
+from .auth import verify_bearer
 from .deps import build_dispatcher_for_bridge
-from .routes import router
+from .routes import authed_router, public_router
 from .settings import BridgeSettings
 
 
 def create_app(settings: BridgeSettings | None = None) -> FastAPI:
-    """Application factory. Builds the Dispatcher once and stashes it on
-    `app.state.dispatcher` so route handlers can reach it via Request.
-
-    Pass an explicit `settings` for tests; production calls with no args and
-    BridgeSettings() reads from the environment.
-    """
     if settings is None:
         settings = BridgeSettings()
 
@@ -19,6 +14,7 @@ def create_app(settings: BridgeSettings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.dispatcher = build_dispatcher_for_bridge(settings)
 
-    app.include_router(router)
+    app.include_router(public_router)
+    app.include_router(authed_router, dependencies=[verify_bearer(settings)])
 
     return app
