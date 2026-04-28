@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Header, Request, status
 from fastapi.responses import JSONResponse
-from trmm_mcp.exceptions import ApprovalError, TrmmApiError
+from trmm_mcp.exceptions import ApprovalError, PolicyError, TrmmApiError
 
 from .models import ActionResponse, ErrorResponse, ExecuteRequest, RejectRequest  # noqa: F401
 
@@ -96,6 +96,14 @@ async def execute_action(
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={"error": f"{type(e).__name__}: {e}"},
+        )
+    except PolicyError as e:
+        # Tool was deregistered between approval and resume (e.g. config
+        # change + restart). Surface as 409 — the action's referent no
+        # longer exists; operators should re-trigger from a fresh tool call.
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"error": str(e)},
         )
 
     return ActionResponse(message=f"Executed: {pending['summary']}")

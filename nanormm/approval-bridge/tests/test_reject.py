@@ -93,3 +93,24 @@ def test_reject_already_executed_returns_409(client, auth_headers, mock_trmm):
         headers=auth_headers,
     )
     assert r.status_code == 409
+
+
+def test_reject_idempotent_on_double_call(client, auth_headers):
+    """Re-rejecting an already-rejected action returns 200 with the same
+    summary — no 409, no double-write."""
+    token = _seed_pending(client)
+
+    r1 = client.post(
+        "/api/nanoclaw/actions/reject/",
+        json={"token": token, "reason": "first"},
+        headers=auth_headers,
+    )
+    assert r1.status_code == 200
+
+    r2 = client.post(
+        "/api/nanoclaw/actions/reject/",
+        json={"token": token, "reason": "second"},
+        headers=auth_headers,
+    )
+    assert r2.status_code == 200
+    assert r2.json() == r1.json()  # Same message, idempotent

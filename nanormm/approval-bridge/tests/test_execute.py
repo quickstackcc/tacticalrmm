@@ -164,3 +164,35 @@ def test_execute_trmm_error_returns_502(client, auth_headers, mock_trmm):
     body = r.json()
     assert "error" in body
     assert "TrmmApiError" in body["error"] or "trmm" in body["error"].lower()
+
+
+def test_execute_resumes_approved_status_without_re_approval(
+    client, auth_headers, mock_trmm, postgresql
+):
+    """If a previous bridge call marked approved but crashed before resume()
+    completed, a new POST should pick up the 'approved' state and just call
+    resume() — without re-marking approved.
+    """
+    from httpx import Response
+
+    mock_trmm.post("/agents/agent-1/processes/kill/").mock(
+        return_value=Response(200, json={"ok": True})
+    )
+
+    token = _seed_pending(client)
+    # Simulate the crash window: registry is approved, but resume() never ran.
+    client.app.state.dispatcher._approvals.mark_approved(token, approved_by="alice")
+
+    r = client.post(
+        "/api/nanoclaw/actions/execute/",
+        json={"token": token},
+        headers=auth_headers,
+    )
+
+    # Should succeed: resume() drives the already-approved row to executed.
+    assert r.status_code == 200
+    assert "message" in r.json()
+
+    # Verify the action is now executed in Redis
+    pending = client.app.state.dispatcher._approvals.get(token)
+    assert pending["status"] == "executed"
