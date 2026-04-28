@@ -26,8 +26,12 @@ class TrmmMcpServer:
     trmm_client: TrmmClient
 
 
-def build_server() -> TrmmMcpServer:
-    settings = Settings()
+def build_dispatcher(settings: Settings | None = None) -> tuple[Dispatcher, ToolRegistry, TrmmClient]:
+    """Construct the Dispatcher graph (policy + approvals + audit + tool
+    registry + trmm client). Used by both the MCP server and approval-bridge
+    so the two processes share construction logic.
+    """
+    settings = settings or Settings()
     policy = Policy.load(settings.policy_path)
     approvals = ApprovalRegistry(
         redis.Redis.from_url(settings.redis_url, decode_responses=True),
@@ -40,6 +44,11 @@ def build_server() -> TrmmMcpServer:
     _register_all(registry, trmm)
 
     dispatcher = Dispatcher(registry=registry, policy=policy, approvals=approvals, audit=audit)
+    return dispatcher, registry, trmm
+
+
+def build_server() -> TrmmMcpServer:
+    dispatcher, registry, trmm = build_dispatcher()
 
     mcp = Server("trmm-mcp")
 
