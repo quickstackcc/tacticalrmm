@@ -146,3 +146,24 @@ def test_execute_records_approver_in_audit(client, auth_headers, mock_trmm, post
     assert row is not None
     assert row[0] == "alice"  # X-Slack-User-Name
     assert row[1] is not None  # executed_at populated
+
+
+def test_execute_trmm_error_returns_502(client, auth_headers, mock_trmm):
+    """If the underlying TRMM call raises TrmmApiError, the bridge maps it to
+    HTTP 502 with {error: '<class>: <msg>'}."""
+    # TRMM returns an error status — TrmmClient maps non-2xx to TrmmApiError.
+    mock_trmm.post("/agents/agent-1/processes/kill/").mock(
+        return_value=Response(500, json={"detail": "internal trmm error"})
+    )
+
+    token = _seed_pending(client)
+    r = client.post(
+        "/api/nanoclaw/actions/execute/",
+        json={"token": token},
+        headers=auth_headers,
+    )
+
+    assert r.status_code == 502
+    body = r.json()
+    assert "error" in body
+    assert "TrmmApiError" in body["error"] or "trmm" in body["error"].lower()

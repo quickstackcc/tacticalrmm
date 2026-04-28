@@ -1,9 +1,13 @@
+import logging
+
 from fastapi import APIRouter, Header, Request, status
 from fastapi.responses import JSONResponse
 
 from trmm_mcp.exceptions import ApprovalError, TrmmApiError
 
 from .models import ActionResponse, ErrorResponse, ExecuteRequest, RejectRequest  # noqa: F401
+
+logger = logging.getLogger(__name__)
 
 # Two routers so create_app can apply Bearer auth selectively:
 # `public_router` carries unauthenticated endpoints (healthz);
@@ -75,7 +79,16 @@ async def execute_action(
     try:
         if current_status == "pending":
             dispatcher._approvals.mark_approved(body.token, approved_by=approver)
-            dispatcher._audit.record_approval(action_id=body.token, approved_by=approver)
+            try:
+                dispatcher._audit.record_approval(action_id=body.token, approved_by=approver)
+            except Exception as audit_err:  # noqa: BLE001 — audit is best-effort
+                # Audit write is best-effort. If Postgres is unavailable,
+                # we still want resume() to drive the already-approved Redis
+                # row to completion. Plan 1 documents the audit/Redis
+                # atomicity gap as a known limitation.
+                logger.warning(
+                    "audit record_approval failed for %s: %s", body.token, audit_err
+                )
         await dispatcher.resume(body.token)
     except ApprovalError as e:
         return JSONResponse(
