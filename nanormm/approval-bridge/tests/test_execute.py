@@ -1,5 +1,4 @@
 import pytest
-import respx
 from fastapi.testclient import TestClient
 from httpx import Response
 
@@ -83,9 +82,7 @@ def test_execute_happy_path(client, auth_headers, mock_trmm):
 def test_execute_rejected_action_returns_409(client, auth_headers):
     token = _seed_pending(client)
     # Pre-reject the action via the registry directly.
-    client.app.state.dispatcher._approvals.mark_rejected(
-        token, rejected_by="bob", reason="unsafe"
-    )
+    client.app.state.dispatcher._approvals.mark_rejected(token, rejected_by="bob", reason="unsafe")
 
     r = client.post(
         "/api/nanoclaw/actions/execute/",

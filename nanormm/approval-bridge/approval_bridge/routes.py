@@ -2,7 +2,6 @@ import logging
 
 from fastapi import APIRouter, Header, Request, status
 from fastapi.responses import JSONResponse
-
 from trmm_mcp.exceptions import ApprovalError, TrmmApiError
 
 from .models import ActionResponse, ErrorResponse, ExecuteRequest, RejectRequest  # noqa: F401
@@ -86,9 +85,7 @@ async def execute_action(
                 # we still want resume() to drive the already-approved Redis
                 # row to completion. Plan 1 documents the audit/Redis
                 # atomicity gap as a known limitation.
-                logger.warning(
-                    "audit record_approval failed for %s: %s", body.token, audit_err
-                )
+                logger.warning("audit record_approval failed for %s: %s", body.token, audit_err)
         await dispatcher.resume(body.token)
     except ApprovalError as e:
         return JSONResponse(
@@ -140,17 +137,13 @@ async def reject_action(
         return ActionResponse(message=f"Rejected: {pending['summary']}")
 
     try:
-        dispatcher._approvals.mark_rejected(
-            body.token, rejected_by=rejecter, reason=body.reason
-        )
+        dispatcher._approvals.mark_rejected(body.token, rejected_by=rejecter, reason=body.reason)
         try:
             dispatcher._audit.record_rejection(
                 action_id=body.token, rejected_by=rejecter, reason=body.reason
             )
         except Exception as audit_err:  # noqa: BLE001 — audit is best-effort
-            logger.warning(
-                "audit record_rejection failed for %s: %s", body.token, audit_err
-            )
+            logger.warning("audit record_rejection failed for %s: %s", body.token, audit_err)
     except ApprovalError as e:
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,

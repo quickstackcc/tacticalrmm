@@ -25,7 +25,7 @@ def test_loads_required_env_vars(monkeypatch, base_env):
     s = BridgeSettings()
 
     assert s.api_key == "secret-token"
-    assert s.host == "0.0.0.0"  # default
+    assert s.host == "0.0.0.0"  # default  # noqa: S104
     assert s.port == 8000  # default
 
     # Trmm-mcp shared settings exposed via .trmm

@@ -1,5 +1,5 @@
 import pytest
-from fastapi import FastAPI, Header
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from approval_bridge.auth import verify_bearer

@@ -19,13 +19,15 @@ postgresql = factories.postgresql("postgresql_proc")
 def policy_file(tmp_path: Path) -> Path:
     """Minimal policy: one auto read-tool, one human_approval write-tool."""
     f = tmp_path / "policy.yaml"
-    f.write_text(textwrap.dedent("""
+    f.write_text(
+        textwrap.dedent("""
         version: 1
         default: human_approval
         tools:
           list_alerts: auto
           kill_process: human_approval
-    """).strip())
+    """).strip()
+    )
     return f
 
 
@@ -73,9 +75,7 @@ def mock_trmm():
 
 
 @pytest.fixture
-def bridge_settings(
-    monkeypatch, policy_file, fake_redis_client, audit_db_dsn
-) -> BridgeSettings:
+def bridge_settings(monkeypatch, policy_file, fake_redis_client, audit_db_dsn) -> BridgeSettings:
     monkeypatch.setenv("NANORMM_BRIDGE_API_KEY", "test-secret")
     monkeypatch.setenv("TRMM_API_BASE", "https://trmm.test")
     monkeypatch.setenv("TRMM_API_TOKEN", "trmm-test-token")

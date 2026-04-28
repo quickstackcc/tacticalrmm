@@ -1,6 +1,5 @@
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 from trmm_mcp.settings import Settings as TrmmMcpSettings
 
 
@@ -19,7 +18,7 @@ class BridgeSettings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
     api_key: str = Field(alias="NANORMM_BRIDGE_API_KEY")
-    host: str = Field(default="0.0.0.0", alias="NANORMM_BRIDGE_HOST")
+    host: str = Field(default="0.0.0.0", alias="NANORMM_BRIDGE_HOST")  # noqa: S104
     port: int = Field(default=8000, alias="NANORMM_BRIDGE_PORT")
 
     @property
