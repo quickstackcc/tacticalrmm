@@ -102,3 +102,59 @@ async def execute_action(
         )
 
     return ActionResponse(message=f"Executed: {pending['summary']}")
+
+
+@authed_router.post(
+    "/api/nanoclaw/actions/reject/",
+    response_model=ActionResponse,
+    responses={
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+    },
+)
+async def reject_action(
+    request: Request,
+    body: RejectRequest,
+    x_slack_user_id: str | None = Header(default=None, alias="X-Slack-User-ID"),
+    x_slack_user_name: str | None = Header(default=None, alias="X-Slack-User-Name"),
+) -> ActionResponse:
+    dispatcher = request.app.state.dispatcher
+    rejecter = _approver_label(x_slack_user_id, x_slack_user_name)
+
+    pending = dispatcher._approvals.get(body.token)
+    if pending is None:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": "Action expired or unknown"},
+        )
+
+    if pending["status"] in {"executed", "expired"}:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"error": f"Action is already {pending['status']}"},
+        )
+
+    if pending["status"] == "rejected":
+        # Idempotent: same caller re-rejecting is fine; surface the existing record.
+        return ActionResponse(message=f"Rejected: {pending['summary']}")
+
+    try:
+        dispatcher._approvals.mark_rejected(
+            body.token, rejected_by=rejecter, reason=body.reason
+        )
+        try:
+            dispatcher._audit.record_rejection(
+                action_id=body.token, rejected_by=rejecter, reason=body.reason
+            )
+        except Exception as audit_err:  # noqa: BLE001 — audit is best-effort
+            logger.warning(
+                "audit record_rejection failed for %s: %s", body.token, audit_err
+            )
+    except ApprovalError as e:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"error": str(e)},
+        )
+
+    return ActionResponse(message=f"Rejected: {pending['summary']}")
