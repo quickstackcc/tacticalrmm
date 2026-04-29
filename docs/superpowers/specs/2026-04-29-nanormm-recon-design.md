@@ -20,7 +20,7 @@ Operator (`@operator` — the tech-driven copilot) is deliberately deferred to P
 - Recon agent identity (`groups/recon/CLAUDE.md`) wired to `#rmm-alerts` as a main channel via the standard `/add-slack` skill.
 - Action-button mechanism patched into our nanoclaw fork by lifting the prospect-pro fork's action-handler block (renamed env var, attribution comment).
 - GCP service-account permissions to enable Vertex AI from agent containers via Workload Identity / ADC.
-- New Slack app for `@recon` (Socket Mode), separate from the existing TRMM-webhook Slack app.
+- New Slack app for `@recon`, separate from the existing TRMM-webhook Slack app. **Webhook mode** (signing-secret-validated) per the v2 `@chat-adapter/slack@4.26.0` adapter, which is webhook-only at every published version. Slack reaches nanoclaw's built-in webhook server (`src/webhook-server.ts`, default port 3000) via TRMM's existing nginx with a new `location /nanormm/webhook/` proxy block.
 - Synthetic-alert smoke test against a sandbox TRMM client.
 
 **Out of scope (deferred, not forgotten):**
@@ -44,7 +44,7 @@ The original `2026-04-27-nanormm-design.md` made a few assumptions that turned o
 | TRMM in Docker | **TRMM is bare-metal** | qsrmm VM was installed via TRMM's official `install.sh`, which provisions Postgres/Redis/MongoDB/Django/Celery/nginx as systemd services on the host. The `docker/` tree in the upstream repo is community-supported, not the official path. |
 | Approval-bridge as Docker container | **Native systemd service** | Consistent with TRMM's bare-metal shape. Bridge connects to localhost Postgres + localhost Redis. The Plan 2 Dockerfile is dropped from the prod path (and physically deleted in Plan 3). |
 | Nanoclaw as Docker container (DooD) | **Native via `nanoclaw.sh`** | The official-supported Linux install is native. DooD adds layers without changing the security profile (both have host docker-socket access). Native is simpler to operate and debug. |
-| Slack interactions via nginx-proxied webhook | **Slack Socket Mode (Bolt WebSocket)** | nanoclaw's slack channel uses Socket Mode; no public ingress for Slack interactions. Removes the nginx route entirely. |
+| Original: Slack Socket Mode (no public ingress) | **Webhook mode via nginx** | The v2 `@chat-adapter/slack@4.26.0` adapter is webhook-only at every published version (`socket_mode_enabled: false`). Plan 3 reverts to nginx-proxied webhook ingress, with TRMM's existing nginx adding a `/nanormm/webhook/` location block proxying to `127.0.0.1:3000` (nanoclaw's built-in webhook server). Slack signing-secret validation happens inside `@chat-adapter/slack`. Slack action button clicks flow back via the same webhook path; nanoclaw's `chat-sdk-bridge` dispatches to `ChannelSetup.onAction`, then to our registered ResponseHandler. |
 | `trmm-mcp` as a separate container | **MCP folded into approval-bridge** | The bridge already imports the trmm-mcp Python package and owns the dispatcher. Adding an MCP HTTP endpoint to the same process eliminates a third container without compromising the MCP module boundary. |
 
 ## Architecture

@@ -40,6 +40,7 @@ In the process we discovered that v2 already has the primitives we were going to
 - **Task 10** — was edits to `agent-runner/src/index.ts` and `container-runner.ts`. Still those files conceptually, but v2 changed the agent-runner (now Bun-runtime, shared across all groups, no per-group overlays per CHANGELOG). The TRMM_MCP_URL passthrough idea is unchanged; the file-level details may differ — **research v2's agent-runner before editing**.
 - **Task 13** — add **Claude Code installation** as a prerequisite step before running `bash nanoclaw.sh` (per v2 changelog: the installer "hands off to Claude Code for error recovery and guided decisions").
 - **Task 14** — recon's system prompt now instructs emitting v2-Card-shaped JSON instead of the `nanoclaw_action` envelope. The exact text follows from Task 9a's dispatcher output shape.
+- **Slack transport correction (post-Task-10):** `@chat-adapter/slack@4.26.0` is webhook-only at every published version (its package metadata is literally `socket_mode_enabled: false`). The Plan 3 spec assumed Socket Mode → no nginx route; that assumption is wrong. Tasks 6, 13, and the deploy steps revert to webhook mode: Slack reaches nanoclaw's built-in webhook server (`src/webhook-server.ts`, default port 3000) via TRMM's existing nginx with a new `location /nanormm/webhook/` proxy block. `.env` uses `SLACK_SIGNING_SECRET` rather than `SLACK_APP_TOKEN`.
 
 The original Tasks 8-14 below are superseded by the **v2-shape replacements** documented inline in each task's section.
 
@@ -903,9 +904,11 @@ When all four steps return expected output, mark this task done. No commit — I
 
 ## Phase 4: Slack app for `@recon` (OPERATOR)
 
-### Task 6: Create the recon Slack app (OPERATOR)
+### Task 6: Create the recon Slack app (OPERATOR) — webhook mode
 
-Manual checkpoint — Jim creates the Slack app, gathers tokens, hands them back.
+Manual checkpoint — Jim creates the Slack app, gathers credentials, hands them back. **Webhook mode**, not Socket Mode (`@chat-adapter/slack` is webhook-only at every published version; see v2 pivot note).
+
+The public URL Slack will reach is `https://api.qsrmm.example.com/nanormm/webhook/slack` — TRMM's existing nginx will proxy this to nanoclaw's webhook server on the VM. Substitute the actual qsrmm hostname.
 
 - [ ] **Step 1: Create the app**
 
@@ -913,11 +916,9 @@ Manual checkpoint — Jim creates the Slack app, gathers tokens, hands them back
 2. Name it `recon` (or `qsrmm-recon` to disambiguate from your other apps).
 3. Pick the Quick Stack workspace.
 
-- [ ] **Step 2: Enable Socket Mode**
+- [ ] **Step 2: Capture the Signing Secret**
 
-1. Left nav → **Socket Mode** → toggle ON.
-2. When prompted, generate an **App-Level Token** with the `connections:write` scope.
-3. Copy the token (starts with `xapp-`). Save securely.
+Left nav → **Basic Information** → **App Credentials** section. Copy the **Signing Secret** value. Save securely. (NOT the Verification Token — that's deprecated.)
 
 - [ ] **Step 3: Add OAuth scopes**
 
@@ -933,9 +934,14 @@ groups:read
 users:read
 ```
 
-- [ ] **Step 4: Subscribe to bot events**
+- [ ] **Step 4: Configure Event Subscriptions (webhook delivery)**
 
-Left nav → **Event Subscriptions** → toggle ON (Socket Mode handles delivery, no Request URL needed) → **Subscribe to bot events** → add:
+Left nav → **Event Subscriptions** → toggle ON.
+
+**Request URL:** `https://api.qsrmm.example.com/nanormm/webhook/slack`
+(Substitute your actual qsrmm hostname. Slack will probe this URL — if nginx isn't yet routing it, the URL verification will fail. That's OK; you can come back after Task 13.5/14 lands the nginx route. Save the app config without verifying for now.)
+
+**Subscribe to bot events:**
 
 ```
 message.channels
@@ -943,9 +949,11 @@ message.groups
 message.im
 ```
 
-- [ ] **Step 5: Enable interactivity (for action buttons)**
+- [ ] **Step 5: Enable Interactivity (for action buttons)**
 
-Left nav → **Interactivity & Shortcuts** → toggle ON. With Socket Mode, no Request URL is needed.
+Left nav → **Interactivity & Shortcuts** → toggle ON.
+
+**Request URL:** `https://api.qsrmm.example.com/nanormm/webhook/slack` (same URL as Step 4 — `chat-sdk-bridge`'s webhook server handles both event payloads and interaction payloads on the same endpoint).
 
 - [ ] **Step 6: Install to workspace**
 
@@ -955,17 +963,17 @@ Left nav → **Install App** → click **Install to Workspace** → approve. Cop
 
 In Slack: right-click `#rmm-alerts` → **View channel details** → **Integrations** → **Add apps** → find `recon` → **Add**.
 
-Capture the channel ID: open `#rmm-alerts` in the browser, the URL contains `/C0XXXXXXXXX/` — that's the channel ID. Save it.
+Capture the channel ID: open `#rmm-alerts` in the browser; the URL contains `/C0XXXXXXXXX/` — that's the channel ID. Save it.
 
 - [ ] **Step 8: Hand off the values**
 
 Surface to me (the agent) when done:
 
 - `SLACK_BOT_TOKEN=xoxb-...`
-- `SLACK_APP_TOKEN=xapp-...`
+- `SLACK_SIGNING_SECRET=<32-char hex>`
 - Channel ID for `#rmm-alerts`: `C0XXXXXXXXX`
 
-I'll incorporate these into Phase 6 deployment env files. Don't paste them into git.
+I'll incorporate these into Phase 6 deployment env files. Don't paste them into git. The Slack app's Request URL verification will fail until the nginx route lands in deploy — Slack lets you save the config anyway and re-verify later.
 
 ---
 
@@ -1695,15 +1703,20 @@ sudo -u nanoclaw $EDITOR /opt/nanoclaw/.env
 sudo chmod 600 /opt/nanoclaw/.env
 ```
 
-Set the following (substitute the values gathered earlier):
+Set the following (substitute the values gathered earlier). **Webhook mode**, NOT Socket Mode:
 
 ```bash
-SLACK_BOT_TOKEN=xoxb-<from Task 6 step 6>
-SLACK_APP_TOKEN=xapp-<from Task 6 step 2>
+# Slack credentials (from Task 6 — webhook mode, not Socket Mode)
+SLACK_BOT_TOKEN=xoxb-<from Task 6 Step 6>
+SLACK_SIGNING_SECRET=<from Task 6 Step 2>
 
-# Bridge wiring — the API key MUST match NANORMM_BRIDGE_API_KEY in /etc/nanormm/bridge.env
-NANOCLAW_ACTION_API_URL=http://host.docker.internal:8000
-NANOCLAW_API_KEY=<paste the same hex string used for NANORMM_BRIDGE_API_KEY>
+# Webhook server port (nanoclaw's built-in webhook server, default 3000)
+WEBHOOK_PORT=3000
+
+# Bridge wiring — these names match what src/modules/nanormm-bridge/index.ts reads.
+# NANORMM_BRIDGE_API_KEY MUST match the same name in /etc/nanormm/bridge.env.
+NANORMM_BRIDGE_URL=http://host.docker.internal:8000
+NANORMM_BRIDGE_API_KEY=<paste the same hex string used in /etc/nanormm/bridge.env>
 
 # trmm-mcp HTTP MCP server — agent containers will see this and connect
 TRMM_MCP_URL=http://host.docker.internal:8000/mcp
@@ -1724,23 +1737,81 @@ sudo -u nanoclaw bash -c 'cd /opt/nanoclaw && mkdir -p data/env && cp .env data/
 - [ ] **Step 5: Build and start nanoclaw service**
 
 ```bash
-sudo -u nanoclaw -i bash -c 'cd /opt/nanoclaw && npm run build'
+sudo -u nanoclaw -i bash -c 'cd /opt/nanoclaw && pnpm run build'
 # Restart per nanoclaw.sh's systemd unit (path varies — check your install)
 sudo -u nanoclaw -i bash -c 'systemctl --user restart nanoclaw' || \
-    sudo -u nanoclaw -i bash -c 'launchctl kickstart -k gui/$(id -u)/com.nanoclaw' || \
     echo "Manual restart needed — check what nanoclaw.sh installed"
 ```
 
-- [ ] **Step 6: Verify nanoclaw is running**
+- [ ] **Step 6: Verify nanoclaw is running and listening**
 
 ```bash
-sudo -u nanoclaw -i tail -n 50 /opt/nanoclaw/logs/nanoclaw.log
-# or wherever nanoclaw.sh configures logging
+# Check service status (path depends on what nanoclaw.sh installed)
+sudo -u nanoclaw -i bash -c 'systemctl --user status nanoclaw'
+
+# Check logs for the webhook server starting
+sudo -u nanoclaw -i bash -c 'journalctl --user -u nanoclaw -n 50' \
+    || sudo -u nanoclaw -i tail -n 50 /opt/nanoclaw/logs/nanoclaw.log
+
+# Confirm webhook server is listening on 3000
+ss -tlnp | grep ':3000' || sudo -u nanoclaw lsof -i :3000
 ```
 
-Expected: a line like `Connected to Slack` and `Slack action button handlers registered`.
+Expected: log lines like `Webhook server listening on port 3000`, `Slack adapter registered`, `nanormm bridge response handler registered`. Port 3000 has a listener.
 
 If you see `SLACK_BOT_TOKEN ... must be set`, the env didn't sync to `data/env/env` — repeat Step 4 and restart.
+
+- [ ] **Step 7: Add nginx route for Slack webhook**
+
+TRMM's existing nginx serves the public hostname (`api.qsrmm.example.com` or whatever your TRMM URL is). Add a `location` block proxying `/nanormm/webhook/` to nanoclaw's webhook server on `127.0.0.1:3000`.
+
+Find the right nginx config file:
+
+```bash
+sudo nginx -T 2>/dev/null | grep -B2 'server_name.*api\.\|server_name.*qsrmm' | head -20
+# Note the conf file path emitted by '# configuration file ...' comments
+```
+
+Add inside the existing `server { ... server_name <your TRMM hostname>; ... }` block (typically `/etc/nginx/sites-available/trmm` or `/etc/nginx/conf.d/trmm.conf`):
+
+```nginx
+location /nanormm/webhook/ {
+    # Strip the /nanormm prefix; nanoclaw expects /webhook/<adapter>
+    rewrite ^/nanormm(/.*)$ $1 break;
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # Slack expects responses within 3s; give us headroom for cold-start.
+    proxy_read_timeout 10s;
+    proxy_connect_timeout 5s;
+}
+```
+
+Test + reload:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+- [ ] **Step 8: Verify the webhook URL responds + complete Slack URL verification**
+
+From your laptop (so we test the actual public path Slack will use):
+
+```bash
+# Should return a small JSON or 4xx without crashing — proves the path is reachable.
+# (Slack's URL verification is a POST with a `challenge` payload that nanoclaw answers.)
+curl -i https://api.qsrmm.example.com/nanormm/webhook/slack \
+    -H 'content-type: application/json' \
+    --data '{"type":"url_verification","challenge":"test123"}'
+```
+
+Expected: HTTP 200 with body `{"challenge":"test123"}` or similar (chat-sdk-bridge / `@chat-adapter/slack` echoes the challenge).
+
+Then go back to https://api.slack.com/apps → your recon app → **Event Subscriptions** → click **Verify** next to the Request URL. Should now turn green. Same for **Interactivity & Shortcuts**.
 
 ---
 
