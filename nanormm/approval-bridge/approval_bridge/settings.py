@@ -20,6 +20,7 @@ class BridgeSettings(BaseSettings):
     api_key: str = Field(alias="NANORMM_BRIDGE_API_KEY")
     host: str = Field(default="0.0.0.0", alias="NANORMM_BRIDGE_HOST")  # noqa: S104
     port: int = Field(default=8000, alias="NANORMM_BRIDGE_PORT")
+    mcp_path: str = Field(default="/mcp", alias="NANORMM_MCP_PATH")
 
     @property
     def trmm(self) -> TrmmMcpSettings:
