@@ -1,0 +1,30 @@
+[Unit]
+Description=nanormm approval-bridge (FastAPI + MCP HTTP)
+After=network.target postgresql.service redis.service
+Requires=network.target
+
+[Service]
+Type=simple
+User=nanormm
+Group=nanormm
+WorkingDirectory=/opt/nanormm/approval-bridge
+EnvironmentFile=/etc/nanormm/bridge.env
+ExecStart=/opt/nanormm/approval-bridge/.venv/bin/python -m approval_bridge
+Restart=on-failure
+RestartSec=5
+# Bind on the docker bridge IP + localhost only via NANORMM_BRIDGE_HOST.
+# Default 0.0.0.0 in the bridge package is overridden via the EnvironmentFile.
+
+# Hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/log/nanormm
+ProtectHome=read-only
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
