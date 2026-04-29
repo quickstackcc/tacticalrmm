@@ -19,6 +19,32 @@
 
 ---
 
+## v2 pivot note (added 2026-04-29 mid-execution)
+
+After Tasks 1-4 landed cleanly, Task 8 hit a wall: the `qwibitai/nanoclaw-slack` repo this plan originally targeted is the **v1** Slack feature skill, which doesn't compile against nanoclaw's recently-released **v2** rewrite (v2.0.0, 2026-04-22). The actual v2 install path for Slack ships from `upstream/channels` — a single branch on the upstream repo that holds *all* channel adapters — using a copy + `pnpm install @chat-adapter/slack@4.26.0`, **not** a foreign-repo merge.
+
+In the process we discovered that v2 already has the primitives we were going to lift from prospect-pro's fork:
+
+- **`Card / Actions / Button`** outbound primitives in the `chat` SDK, rendered to Slack blocks by `chat-sdk-bridge.ts`.
+- **`ChannelSetup.onAction(questionId, selectedOption, userId)`** as a built-in lifecycle hook on the v2 channel adapter contract.
+- **`registerResponseHandler(handler)`** in core for claiming button-click events.
+- A whole `src/modules/approvals/` module — but it's host-side `requestApproval()` for module-initiated permission asks (e.g. self-mod package installs), not for agent-MCP-tool approvals. **Our approval-bridge keeps its role unchanged.**
+
+**What changes in this plan:**
+
+- **Task 7** (operator: fork creation) — done as planned. Already complete.
+- **Task 8** — was "merge slack/main"; now "v2 /add-slack: copy adapter from `origin/channels` + install `@chat-adapter/slack`". Smaller and uses the official v2 path.
+- **Task 9** — was "lift action handler from prospect-pro fork"; **split** into:
+  - **Task 9a**: Modify `trmm_mcp/tools/_base.py` so `Dispatcher.dispatch()`'s pending response carries v2-shaped Card content (rather than the prospect-pro `nanoclaw_action` envelope shape Plan 2 introduced).
+  - **Task 9b**: In our nanoclaw fork, register a custom `ResponseHandler` that recognizes `nrmact-<action_id>` question ids and POSTs to our bridge's existing `/api/nanoclaw/actions/execute/`. ~30 lines of TS, smaller than the prospect-pro lift.
+- **Task 10** — was edits to `agent-runner/src/index.ts` and `container-runner.ts`. Still those files conceptually, but v2 changed the agent-runner (now Bun-runtime, shared across all groups, no per-group overlays per CHANGELOG). The TRMM_MCP_URL passthrough idea is unchanged; the file-level details may differ — **research v2's agent-runner before editing**.
+- **Task 13** — add **Claude Code installation** as a prerequisite step before running `bash nanoclaw.sh` (per v2 changelog: the installer "hands off to Claude Code for error recovery and guided decisions").
+- **Task 14** — recon's system prompt now instructs emitting v2-Card-shaped JSON instead of the `nanoclaw_action` envelope. The exact text follows from Task 9a's dispatcher output shape.
+
+The original Tasks 8-14 below are superseded by the **v2-shape replacements** documented inline in each task's section.
+
+---
+
 ## File structure
 
 This plan touches three repos and produces deployment artifacts on the GCE VM.
@@ -978,332 +1004,397 @@ The fork is ready for the agentic Tasks 8–10. Tell me which directory it's in.
 
 ---
 
-### Task 8: Apply the upstream `/add-slack` skill (AGENTIC)
+### Task 8: Install v2 Slack adapter from `origin/channels` (AGENTIC) — v2 SHAPE
 
-**Files:**
-- Modify (via merge): `src/channels/slack.ts`, `src/channels/index.ts`, `src/channels/slack.test.ts`, `package.json`, `.env.example`
+**Files (in our nanoclaw fork at `~/quickstack-cc/nanormm-nanoclaw`):**
+- Create: `src/channels/slack.ts` (copied from `origin/channels`)
+- Modify: `src/channels/index.ts` (append `import './slack.js';`)
+- Modify: `package.json` (add `@chat-adapter/slack@4.26.0` dep)
 
-This is the standard nanoclaw `/add-slack` skill flow per `nanoclaw/.claude/skills/add-slack/SKILL.md` Phase 2.
+This follows the **v2** `/add-slack` skill at `.claude/skills/add-slack/SKILL.md` (the on-disk skill our fork already has from upstream/main). Don't merge from `qwibitai/nanoclaw-slack` — that's the deprecated v1 path.
 
-- [ ] **Step 1: Verify the slack remote is configured**
+**Working directory:** `~/quickstack-cc/nanormm-nanoclaw` on branch `main`. Worktree should be clean — Task 7 has already been completed and any earlier bad merges have been reverted to upstream/main.
+
+- [ ] **Step 1: Confirm clean v2 baseline**
 
 ```bash
 cd ~/quickstack-cc/nanormm-nanoclaw
-git remote -v | grep slack
+git status -sb
+git log --oneline -3
+git show HEAD:package.json | grep -E '"name"|"version"'
 ```
 
-Expected: `slack  https://github.com/qwibitai/nanoclaw-slack.git`. If missing, `git remote add slack https://github.com/qwibitai/nanoclaw-slack.git && git fetch slack`.
+Expected: `## main`, no working-tree changes. Top commit is upstream/main's HEAD. `version` is `2.0.x`. If any unexpected merge commit is present, surface it before proceeding.
 
-- [ ] **Step 2: Merge the slack skill branch**
+- [ ] **Step 2: Fetch the v2 channels branch**
 
 ```bash
-git fetch slack main
-git merge slack/main || {
-    # The skill's documented conflict resolution
-    git checkout --theirs package-lock.json
-    git add package-lock.json
-    git merge --continue
-}
+git fetch origin channels
 ```
 
-If other conflicts appear, read both sides and resolve preserving the upstream nanoclaw structure plus the slack channel additions.
+Expected: brings `origin/channels` into the local refs.
 
-- [ ] **Step 3: Validate the build**
+- [ ] **Step 3: Copy the slack adapter from the channels branch**
 
 ```bash
-npm install
-npm run build
-npx vitest run src/channels/slack.test.ts
+git show origin/channels:src/channels/slack.ts > src/channels/slack.ts
 ```
 
-Expected: build clean, all 46 slack tests pass.
+This copies a 21-line file that delegates to `@chat-adapter/slack` and registers via `registerChannelAdapter('slack', { factory: ... })`.
 
-- [ ] **Step 4: Commit (the merge already created a merge commit; nothing extra needed)**
+- [ ] **Step 4: Append the self-registration import to channel index**
 
-Confirm `git log --oneline -3` shows a merge commit from `slack/main`.
+`src/channels/index.ts` lists every channel module as `import './<name>.js';`. Append:
+
+```typescript
+import './slack.js';
+```
+
+(skip if already present — re-running the skill should be idempotent).
+
+- [ ] **Step 5: Install the chat adapter package**
+
+```bash
+pnpm install @chat-adapter/slack@4.26.0
+```
+
+Expected: pnpm-lock.yaml updates, no peer-dep failures.
+
+- [ ] **Step 6: Build**
+
+```bash
+pnpm run build
+```
+
+Expected: clean TypeScript compile. The slack adapter just delegates, so no v1/v2 API mismatch this time.
+
+- [ ] **Step 7: Run vitest**
+
+```bash
+pnpm exec vitest run
+```
+
+Expected: all existing tests pass. The slack adapter file from upstream/channels has no embedded test (the chat-sdk-bridge does the heavy lifting and is tested upstream); we don't need to add one — the existing `chat-sdk-bridge.test.ts` already covers the bridge mechanics.
+
+- [ ] **Step 8: Commit + push**
+
+```bash
+git add src/channels/slack.ts src/channels/index.ts package.json pnpm-lock.yaml
+git commit -m "add slack channel via v2 /add-slack skill (origin/channels)"
+git push origin main
+```
 
 ---
 
-### Task 9: Lift the action-button handler from prospect-pro's fork (AGENTIC)
+### Task 9: Approval card round-trip — v2 SHAPE (AGENTIC)
 
-**Files:**
-- Modify: `src/channels/slack.ts`
-- Modify: `.env.example`
+This task replaces the original "lift action handler from prospect-pro fork" with a v2-native approach. **Two parts**, executed as one task because they form a tightly-coupled contract on `questionId` format:
 
-We extract the action-button machinery from `quickstack-cc/nanoclaw-private` (the prospect-pro fork) and adapt it: rename `PROSPECT_PRO_API_URL` → `NANOCLAW_ACTION_API_URL`, leave a comment crediting origin, and rename the agent-side env var that nanoclaw reads.
+- **9a.** trmm-mcp dispatcher emits v2 Card-shaped pending response (instead of the prospect-pro `nanoclaw_action` envelope shape Plan 2 introduced).
+- **9b.** Our nanormm-nanoclaw fork registers a custom `ResponseHandler` that recognizes our action ids and POSTs to the bridge's existing `/api/nanoclaw/actions/execute/`.
 
-- [ ] **Step 1: Read the prospect-pro fork's slack.ts to identify the action-handler block**
+**Files (qsrmm worktree):**
+- Modify: `nanormm/trmm-mcp/trmm_mcp/tools/_base.py` — change envelope shape
+- Modify: `nanormm/trmm-mcp/tests/test_envelope.py` — update assertions
+
+**Files (nanormm-nanoclaw fork at `~/quickstack-cc/nanormm-nanoclaw`):**
+- Create: `src/modules/nanormm-bridge/index.ts` — registers our response handler
+- Modify: `src/index.ts` — import the new module so it self-registers
+- Modify: `.env.example` — document `NANORMM_BRIDGE_URL`, `NANORMM_BRIDGE_API_KEY`
+
+**Key contract:** the questionId we use across both sides is `nrmact-<action_id>`. The bridge's action_id is already a URL-safe short string from Plan 1 (`act_<token_urlsafe(12)>`). The full questionId is e.g. `nrmact-act_abc123def456`.
+
+#### 9a. Dispatcher emits v2 Card-shaped pending response
+
+- [ ] **Step 1: Read v2's Card primitive shape**
+
+Look at `~/quickstack-cc/nanormm-nanoclaw` upstream/main `src/channels/chat-sdk-bridge.ts` to see how `Card`, `Actions`, `Button` are constructed (the `ask_user_question` rendering is the canonical example). Skim what gets imported from the `chat` package and what shape the JSON payload has when emitted as `OutboundMessage { kind: 'chat-sdk', content: <CardJSON> }`.
+
+You don't need to memorize it — just enough to draft a JSON that the bridge will recognize as a Card with two buttons. The button id format `ncq:<questionId>:<idx>` is the bridge's own convention (see comments around the `ask_user_question` rendering for context on why).
+
+- [ ] **Step 2: Modify `trmm_mcp/tools/_base.py:_build_nanoclaw_action_envelope` for v2 shape**
+
+In `nanormm/trmm-mcp/trmm_mcp/tools/_base.py`, find the existing helper added in Plan 2 Task 8:
+
+```python
+def _build_nanoclaw_action_envelope(*, action_id: str, summary: str) -> dict[str, Any]:
+```
+
+Rename it to `_build_approval_card_envelope` and rewrite to emit:
+
+```python
+def _build_approval_card_envelope(*, action_id: str, summary: str) -> dict[str, Any]:
+    """Build a v2-Card-shaped envelope for the agent to emit verbatim.
+
+    Returned as the `nanormm_card` key of the dispatcher's pending response.
+    The recon agent's system prompt instructs it to emit the value of this
+    key as its final outbound message body. nanoclaw's chat-sdk-bridge
+    renders `kind: 'chat-sdk'` content as Slack blocks with action buttons.
+
+    questionId convention: ``nrmact-<action_id>`` — the response handler
+    in our nanoclaw fork keys off the ``nrmact-`` prefix to claim the click.
+    """
+    question_id = f"nrmact-{action_id}"
+    preview = summary or "Action requires confirmation"
+    return {
+        "kind": "chat-sdk",
+        "content": {
+            "type": "card",
+            "blocks": [
+                {"type": "text", "text": f"*Pending action:*\n{preview}"},
+                {
+                    "type": "actions",
+                    "questionId": question_id,
+                    "buttons": [
+                        {"id": f"ncq:{question_id}:0", "label": "Approve",
+                         "selectedLabel": "✅ Approved", "value": "approve",
+                         "style": "primary"},
+                        {"id": f"ncq:{question_id}:1", "label": "Reject",
+                         "selectedLabel": "❌ Rejected", "value": "reject",
+                         "style": "danger"},
+                    ],
+                },
+            ],
+        },
+    }
+```
+
+> **Note for executor:** the exact JSON keys (`type`, `blocks`, `buttons`, `id` format) need to match what nanoclaw's chat-sdk-bridge actually expects. Verify against `chat-sdk-bridge.ts` from Step 1 reading. If the actual upstream shape differs, conform to it; the values above are best-effort given what was visible during planning.
+
+Then update the call site of the helper in `Dispatcher.dispatch()`:
+
+```python
+        return {
+            "status": "pending",
+            "action_id": action_id,
+            "summary": summary,
+            "nanormm_card": _build_approval_card_envelope(
+                action_id=action_id, summary=summary
+            ),
+        }
+```
+
+(Renamed key from `nanoclaw_action` to `nanormm_card`.)
+
+- [ ] **Step 3: Update `tests/test_envelope.py`**
+
+Plan 2's envelope test asserts the prospect-pro shape. Update it for the v2 shape:
+
+```python
+@pytest.mark.asyncio
+async def test_pending_response_includes_approval_card(envelope_env):
+    """Pending response carries a v2-Card-shaped `nanormm_card` envelope."""
+    registry, dispatcher = envelope_env
+
+    @registry.register(name="kill_process")
+    async def kill_process(*, agent_id: str, pid: int) -> dict:
+        return {"ok": True}
+
+    summary = "Kill PID 4123 on agent DC01"
+    result = await dispatcher.dispatch(
+        "kill_process",
+        {"agent_id": "DC01", "pid": 4123},
+        summary=summary,
+    )
+
+    assert result["status"] == "pending"
+    action_id = result["action_id"]
+
+    env = result["nanormm_card"]
+    assert env["kind"] == "chat-sdk"
+
+    content = env["content"]
+    assert content["type"] == "card"
+    blocks = content["blocks"]
+
+    text_blocks = [b for b in blocks if b.get("type") == "text"]
+    assert any(summary in str(b) for b in text_blocks)
+
+    action_blocks = [b for b in blocks if b.get("type") == "actions"]
+    assert len(action_blocks) == 1
+    actions = action_blocks[0]
+    assert actions["questionId"] == f"nrmact-{action_id}"
+
+    buttons = actions["buttons"]
+    approve = next(b for b in buttons if b["value"] == "approve")
+    reject = next(b for b in buttons if b["value"] == "reject")
+    assert approve["style"] == "primary"
+    assert reject["style"] == "danger"
+
+
+@pytest.mark.asyncio
+async def test_auto_response_does_not_include_card(envelope_env):
+    registry, dispatcher = envelope_env
+
+    @registry.register(name="list_alerts")
+    async def list_alerts() -> list:
+        return [{"id": 1}]
+
+    result = await dispatcher.dispatch("list_alerts", {}, summary="")
+    assert result["status"] == "executed"
+    assert "nanormm_card" not in result
+    assert "nanoclaw_action" not in result
+```
+
+- [ ] **Step 4: Run trmm-mcp suite**
 
 ```bash
-git fetch reference-pp
-git show reference-pp/main:src/channels/slack.ts > /tmp/pp-slack.ts
-# Find the relevant sections
-grep -n "setupActionHandlers\|nanoclaw_confirm\|nanoclaw_cancel\|parseActionResponse\|PROSPECT_PRO_API_URL\|NANOCLAW_API_KEY" /tmp/pp-slack.ts
+cd /home/jim/quickstack-cc/qsrmm/.worktrees/nanormm-recon/nanormm/trmm-mcp
+. .venv/bin/activate
+pytest -q
 ```
 
-You should see lines around the constructor's env reading, the constructor's call to `setupActionHandlers`, the `parseActionResponse()` method, and the `setupActionHandlers()` method.
+Expected: 89 tests pass (the renamed key + new shape break Plan 2's envelope tests; you've replaced those above so the count holds steady).
 
-- [ ] **Step 2: Apply the patch to `src/channels/slack.ts`**
+- [ ] **Step 5: Run bridge suite for regression**
 
-Modify these specific places in the just-merged `src/channels/slack.ts`:
-
-1. **Imports stay as is.** No new imports needed.
-
-2. **In `SlackChannel` class fields**, add three private fields (after `private userNameCache`):
-
-```typescript
-  private opts: SlackChannelOpts;
-  private apiKey: string | undefined;
-  private apiBaseUrl: string;
+```bash
+cd /home/jim/quickstack-cc/qsrmm/.worktrees/nanormm-recon/nanormm/approval-bridge
+. .venv/bin/activate
+pytest -q
 ```
 
-3. **In the constructor**, modify the `readEnvFile` call to also read the action-callback env vars:
+Expected: 27 tests pass. Bridge tests don't reference the envelope by name, so they're unaffected.
 
-```typescript
-    // Read tokens from .env (not process.env — keeps secrets off the environment
-    // so they don't leak to child processes, matching NanoClaw's security pattern)
-    const env = readEnvFile([
-      'SLACK_BOT_TOKEN',
-      'SLACK_APP_TOKEN',
-      'NANOCLAW_ACTION_API_URL',  // bridge URL for action callbacks (nanormm fork addition)
-    ]);
-    const botToken = env.SLACK_BOT_TOKEN;
-    const appToken = env.SLACK_APP_TOKEN;
-    this.apiBaseUrl = env.NANOCLAW_ACTION_API_URL || 'http://web:8000';
+- [ ] **Step 6: Commit (qsrmm side)**
+
+```bash
+cd /home/jim/quickstack-cc/qsrmm/.worktrees/nanormm-recon
+git add nanormm/trmm-mcp/trmm_mcp/tools/_base.py nanormm/trmm-mcp/tests/test_envelope.py
+git commit -m "trmm-mcp: emit v2 Card-shaped envelope (nanormm_card) in pending response"
 ```
 
-4. **In `setupEventHandlers()`** (or at the end of the constructor — match wherever prospect-pro's fork puts it), add a call to `setupActionHandlers` only if an API key is present:
+#### 9b. Custom ResponseHandler in nanoclaw fork
 
-At the start of `setupEventHandlers()`, before `this.app.event('message', …)`:
+- [ ] **Step 7: Create the bridge module**
+
+Create `~/quickstack-cc/nanormm-nanoclaw/src/modules/nanormm-bridge/index.ts`:
 
 ```typescript
-  private setupEventHandlers(): void {
-    // Read API key for action button handlers (optional — only set when wired
-    // to nanormm approval-bridge or an equivalent confirm-callback endpoint).
-    // Lifted from quickstack-cc/nanoclaw-private (prospect-pro's fork) and
-    // generalized via NANOCLAW_ACTION_API_URL.
-    const actionEnv = readEnvFile(['NANOCLAW_API_KEY']);
-    this.apiKey = actionEnv.NANOCLAW_API_KEY;
+/**
+ * nanormm bridge response handler.
+ *
+ * Claims onAction events whose questionId starts with `nrmact-` and POSTs
+ * the corresponding action_id to the approval-bridge's
+ * /api/nanoclaw/actions/execute/ endpoint with Bearer auth and Slack user
+ * attribution headers.
+ *
+ * Reject (selectedOption !== 'approve') currently no-ops here — the click
+ * is claimed and chat-sdk-bridge updates the card visually, but we don't
+ * call the bridge's /reject/ endpoint. Plan 4+ may wire that.
+ */
+import { readEnvFile } from '../../env.js';
+import { log } from '../../log.js';
+import { registerResponseHandler } from '../../response-registry.js';
+import type { ResponsePayload } from '../../response-registry.js';
 
-    if (this.apiKey) {
-      this.setupActionHandlers();
+const QUESTION_ID_PREFIX = 'nrmact-';
+
+const env = readEnvFile(['NANORMM_BRIDGE_URL', 'NANORMM_BRIDGE_API_KEY']);
+const BRIDGE_URL = env.NANORMM_BRIDGE_URL || 'http://host.docker.internal:8000';
+const API_KEY = env.NANORMM_BRIDGE_API_KEY;
+
+async function handleNanormmResponse(payload: ResponsePayload): Promise<boolean> {
+    if (!payload.questionId.startsWith(QUESTION_ID_PREFIX)) return false;
+
+    const actionId = payload.questionId.slice(QUESTION_ID_PREFIX.length);
+    const userId = payload.userId ?? '';
+
+    if (payload.value !== 'approve') {
+        // Reject path — claim the response but don't call the bridge.
+        // chat-sdk-bridge updates the card to "❌ Rejected" automatically.
+        log.info('nanormm action rejected (claimed, no bridge call)', { actionId, userId });
+        return true;
     }
 
-    // ... existing app.event('message') handler stays unchanged below
-```
-
-5. **In `sendMessage()`**, add envelope detection BEFORE the existing `chat.postMessage` block. This intercepts agent output that contains a `nanoclaw_action` JSON envelope and posts message blocks instead of plain text:
-
-```typescript
-  async sendMessage(jid: string, text: string): Promise<void> {
-    const channelId = jid.replace(/^slack:/, '');
-
-    if (!this.connected) {
-      this.outgoingQueue.push({ jid, text });
-      logger.info(
-        { jid, queueSize: this.outgoingQueue.length },
-        'Slack disconnected, message queued',
-      );
-      return;
+    if (!API_KEY) {
+        log.error('NANORMM_BRIDGE_API_KEY missing; cannot execute approved action', { actionId });
+        return true; // claim anyway so other handlers don't fight over it
     }
 
     try {
-      // Detect action response JSON envelope from agent
-      // (lifted from quickstack-cc/nanoclaw-private)
-      const actionPayload = this.parseActionResponse(text);
-      if (actionPayload) {
-        await this.app.client.chat.postMessage({
-          channel: channelId,
-          text: actionPayload.preview || 'Action requires confirmation',
-          blocks: actionPayload.slack_blocks,
-        });
-        logger.info({ jid }, 'Slack action buttons posted');
-        return;
-      }
-
-      // ... existing splitting + postMessage logic stays unchanged
-```
-
-6. **Add `parseActionResponse()` method** (anywhere in the class, by convention near other private helpers):
-
-```typescript
-  /**
-   * Parse agent output for nanoclaw_action JSON envelope.
-   * Returns the action payload if detected, null otherwise.
-   *
-   * Lifted from quickstack-cc/nanoclaw-private (prospect-pro fork).
-   */
-  private parseActionResponse(
-    text: string,
-  ): { preview: string; slack_blocks: any[] } | null {
-    // Strip markdown code fences if present
-    let cleaned = text.trim();
-    if (cleaned.startsWith('```')) {
-      cleaned = cleaned
-        .replace(/^```(?:json)?\n?/, '')
-        .replace(/\n?```$/, '')
-        .trim();
-    }
-    try {
-      const parsed = JSON.parse(cleaned);
-      if (parsed.nanoclaw_action && parsed.nanoclaw_action.slack_blocks) {
-        return {
-          preview:
-            parsed.nanoclaw_action.preview || 'Action requires confirmation',
-          slack_blocks: parsed.nanoclaw_action.slack_blocks,
-        };
-      }
-    } catch {
-      // Not JSON — normal text message
-    }
-    return null;
-  }
-```
-
-7. **Add `setupActionHandlers()` method** with `nanoclaw_confirm` and `nanoclaw_cancel` Bolt action handlers:
-
-```typescript
-  /**
-   * Register Slack interactive action handlers for Confirm/Cancel buttons.
-   * These run in the NanoClaw host process (not an agent container).
-   *
-   * Lifted from quickstack-cc/nanoclaw-private (prospect-pro fork) and
-   * generalized: env var renamed PROSPECT_PRO_API_URL -> NANOCLAW_ACTION_API_URL.
-   */
-  private setupActionHandlers(): void {
-    // Confirm button: call action-callback endpoint, edit message with outcome
-    this.app.action('nanoclaw_confirm', async ({ ack, body }) => {
-      await ack();
-
-      const token = (body as any).actions?.[0]?.value as string | undefined;
-      const channelId = body.channel?.id;
-      const messageTs = (body as any).message?.ts;
-      const userId = body.user.id;
-      const userName = (body.user as any).name || '';
-
-      if (!channelId || !messageTs) {
-        logger.warn('nanoclaw_confirm: missing channel or message ts');
-        return;
-      }
-
-      try {
-        const res = await fetch(
-          `${this.apiBaseUrl}/api/nanoclaw/actions/execute/`,
-          {
+        const res = await fetch(`${BRIDGE_URL}/api/nanoclaw/actions/execute/`, {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${this.apiKey}`,
-              'Content-Type': 'application/json',
-              'X-Slack-User-ID': userId,
-              'X-Slack-User-Name': userName,
+                'Authorization': `Bearer ${API_KEY}`,
+                'Content-Type': 'application/json',
+                'X-Slack-User-ID': userId,
             },
-            body: JSON.stringify({ token }),
-          },
-        );
-
-        const data = (await res.json()) as Record<string, any>;
-
-        if (res.ok) {
-          await this.app.client.chat.update({
-            channel: channelId,
-            ts: messageTs,
-            text: `Confirmed: ${data.message || 'Action executed.'}`,
-            blocks: [],
-          });
-          logger.info({ token, userId }, 'Action confirmed and executed');
-        } else {
-          await this.app.client.chat.update({
-            channel: channelId,
-            ts: messageTs,
-            text: `Failed: ${data.error || 'Unknown error'}`,
-            blocks: [],
-          });
-          logger.warn(
-            { token, userId, status: res.status, error: data.error },
-            'Action execution failed',
-          );
-        }
-      } catch (err: any) {
-        await this.app.client.chat.update({
-          channel: channelId,
-          ts: messageTs,
-          text: `Action failed: ${err.message || 'Network error'}`,
-          blocks: [],
+            body: JSON.stringify({ token: actionId }),
         });
-        logger.error({ token, userId, err }, 'Action execution error');
-      }
-    });
+        const body = (await res.json()) as Record<string, unknown>;
+        if (res.ok) {
+            log.info('nanormm action executed', { actionId, userId, message: body.message });
+        } else {
+            log.warn('nanormm action execution failed', { actionId, status: res.status, error: body.error });
+        }
+    } catch (err) {
+        log.error('nanormm bridge call errored', { actionId, err });
+    }
+    return true;
+}
 
-    // Cancel button: edit message to show Cancelled (client-side only — does
-    // not currently call /actions/reject/. See spec section 7 — deferred.)
-    this.app.action('nanoclaw_cancel', async ({ ack, body }) => {
-      await ack();
-
-      const channelId = body.channel?.id;
-      const messageTs = (body as any).message?.ts;
-
-      if (!channelId || !messageTs) {
-        logger.warn('nanoclaw_cancel: missing channel or message ts');
-        return;
-      }
-
-      await this.app.client.chat.update({
-        channel: channelId,
-        ts: messageTs,
-        text: 'Cancelled.',
-        blocks: [],
-      });
-      logger.info({ userId: body.user.id }, 'Action cancelled by user');
-    });
-
-    logger.info('Slack action button handlers registered');
-  }
+registerResponseHandler(handleNanormmResponse);
+log.info('nanormm bridge response handler registered');
 ```
 
-- [ ] **Step 3: Update `.env.example` with the new env vars**
+- [ ] **Step 8: Wire the module's import into `src/index.ts`**
+
+In `src/index.ts`, find the section that imports modules (look for other `import './modules/<name>/index.js'` lines). Append:
+
+```typescript
+import './modules/nanormm-bridge/index.js';
+```
+
+Match the existing import convention exactly (`.js` extension or not).
+
+- [ ] **Step 9: Document env vars**
 
 Append to `.env.example`:
 
 ```
-# Optional: when set, Slack action buttons emitted by the agent will be
-# wired to call this endpoint on Confirm with NANOCLAW_API_KEY as Bearer.
-NANOCLAW_ACTION_API_URL=
-NANOCLAW_API_KEY=
+# nanormm bridge wiring — used by src/modules/nanormm-bridge to handle
+# trmm-mcp tool approvals. The agent's outbound card emits a questionId
+# of the form `nrmact-<action_id>`; clicks are POSTed to the bridge.
+NANORMM_BRIDGE_URL=http://host.docker.internal:8000
+NANORMM_BRIDGE_API_KEY=
 ```
 
-- [ ] **Step 4: Build and run tests**
+- [ ] **Step 10: Build and run nanoclaw tests**
 
 ```bash
-npm run build
-npx vitest run src/channels/slack.test.ts
+cd ~/quickstack-cc/nanormm-nanoclaw
+pnpm run build
+pnpm exec vitest run
 ```
 
-Expected: TypeScript compiles. The pre-existing 46 slack tests still pass (we added new methods — they don't break existing behavior unless one of those tests asserted `setupEventHandlers` behavior tightly. If any fails because it expected a method to NOT exist, update the test to ignore the new methods.).
+Expected: clean compile, all existing tests pass. (We don't add tests for the new module here — it's a glue file with side-effects that's hard to unit-test in isolation; integration validation comes via the smoke test in Task 15.)
 
-If the existing tests don't assert anything about the action handlers, they'll all still pass. If a few fail because of the new env reads, mock them in the test setup with `process.env.NANOCLAW_API_KEY = ''` or similar.
+> **Note for executor:** if `ResponsePayload` doesn't have `questionId` / `userId` / `value` fields under those exact names, conform to whatever the actual interface has. Check `src/response-registry.ts` for the truth. Same for `readEnvFile`'s API — match its actual signature. The intent of the handler is "claim onAction events with our prefix and POST to bridge."
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 11: Commit + push (nanoclaw fork)**
 
 ```bash
-git add src/channels/slack.ts .env.example
-git commit -m "slack: lift action-button handler from prospect-pro fork
-
-Adds nanoclaw_confirm / nanoclaw_cancel Bolt handlers and the
-nanoclaw_action JSON envelope parser, generalized from prospect-pro's
-fork by renaming PROSPECT_PRO_API_URL -> NANOCLAW_ACTION_API_URL.
-NANOCLAW_API_KEY remains as the Bearer secret.
-
-Origin: quickstack-cc/nanoclaw-private (prospect-pro)"
+cd ~/quickstack-cc/nanormm-nanoclaw
+git add src/modules/nanormm-bridge/ src/index.ts .env.example
+git commit -m "modules: nanormm-bridge response handler for trmm-mcp action approvals"
+git push origin main
 ```
 
 ---
 
-### Task 10: Add the trmm MCP HTTP server to the agent runner (AGENTIC)
+### Task 10: Add the trmm MCP HTTP server to the agent runner (AGENTIC) — v2 shape
 
-**Files:**
-- Modify: `container/agent-runner/src/index.ts`
-- Modify: `src/container-runner.ts`
-- Modify: `.env.example`
+**v2 caveat:** the v2 changelog notes "Agent-runner runtime moved from Node to Bun" and "Per-group `agent-runner-src/` overlays are gone; all groups mount the same agent-runner read-only." So:
+
+- **The file may be at a different path in v2.** Per upstream/main, look first at `container/agent-runner/src/index.ts` (same path as v1) — but **grep for the file that ships the Claude Agent SDK `query()` call**, since the build/runtime split may have moved code around.
+- **Bun-runtime imports/syntax may differ slightly.** Use `process.env` reads via Bun-compatible idioms (Bun supports `process.env` natively, so the existing pattern likely works).
+- **No per-group customization.** Whatever change we make applies to ALL agent containers system-wide. That's fine for our use case — every agent benefits from `mcp__trmm__*` access (recon needs it; future agents are nominally same fleet).
+
+**Files (in `~/quickstack-cc/nanormm-nanoclaw`):**
+- Modify: `container/agent-runner/src/index.ts` — or whatever file currently holds the Claude Agent SDK `query()` call's `mcpServers` config in v2 (verify via grep first).
+- Modify: `src/container-runner.ts` — pass `TRMM_MCP_URL` from orchestrator env into spawned agent container env. Verify the file still has env-passthrough code in v2; if it's been split, conform to the v2 layout.
+- Modify: `.env.example` — document `TRMM_MCP_URL`.
 
 The agent SDK reads `mcpServers` from its query options. We add a second entry pointing at the bridge's `/mcp` endpoint. The URL is passed in via the agent container's env, set by the host `container-runner.ts`.
 
@@ -1556,6 +1647,30 @@ Expected: empty (or only an internal rule). The bridge port must NOT be exposed 
 
 ### Task 13: Install nanoclaw natively on the VM (OPERATOR)
 
+- [ ] **Step 0: Install Claude Code under the `nanoclaw` user (PREREQUISITE)**
+
+The v2 `nanoclaw.sh` installer "hands off to Claude Code for error recovery and guided decisions" per the v2 changelog. Claude Code must be on PATH for the `nanoclaw` user before running the installer.
+
+```bash
+# Confirm the user has a node + npm available (nanoclaw.sh expects them).
+sudo -u nanoclaw -i node --version
+sudo -u nanoclaw -i npm --version
+
+# If node isn't installed, install it under nanoclaw's user-local nvm
+# OR via apt (matches the rest of the qsrmm bare-metal pattern):
+# sudo apt install -y nodejs npm
+
+# Install Claude Code globally for the nanoclaw user:
+sudo -u nanoclaw -i npm install -g @anthropic-ai/claude-code
+
+# Verify
+sudo -u nanoclaw -i claude --version
+```
+
+Expected: `claude --version` prints a version string.
+
+If `npm install -g` complains about EACCES, the nanoclaw user may need a user-local npm prefix (`npm config set prefix ~/.npm-global` then `export PATH=~/.npm-global/bin:$PATH`). Match whatever idiom the rest of the VM's npm globals use.
+
 - [ ] **Step 1: Clone the nanormm-nanoclaw fork**
 
 ```bash
@@ -1569,9 +1684,9 @@ sudo -u nanoclaw git clone git@github.com:quickstack-cc/nanormm-nanoclaw.git \
 sudo -u nanoclaw -i bash -c 'cd /opt/nanoclaw && bash nanoclaw.sh'
 ```
 
-Follow the interactive prompts. The script handles npm install, Docker container build for agents, and creates a user-level systemd unit at `~nanoclaw/.config/systemd/user/nanoclaw.service` (or similar — depends on the script's output).
+Follow the interactive prompts. The script handles `pnpm install`, Docker container build for agents, and creates a user-level systemd unit at `~nanoclaw/.config/systemd/user/nanoclaw.service` (or similar — depends on the script's output). It uses the Claude Code CLI installed in Step 0 for guided error recovery.
 
-When prompted about Anthropic auth, **decline** (or skip OneCLI vault setup) — we're going Vertex AI instead, configured in Step 3.
+When prompted about Anthropic auth, **decline** OneCLI vault setup if asked — we're going Vertex AI instead, configured in Step 3.
 
 - [ ] **Step 3: Configure `/opt/nanoclaw/.env`**
 
@@ -1686,9 +1801,10 @@ draft a recommended remediation.
 4. Recommend a remediation. Cite the specific tool you'd use (e.g.
    "kill_process(agent_id=X, pid=Y) would clear the runaway worker").
 5. If a write action is warranted, **call the tool now**. The bridge will
-   return a `nanoclaw_action` envelope — emit that envelope verbatim as
-   your final response. Do NOT describe it; do NOT add commentary around
-   it; do NOT wrap it in markdown. Just the raw JSON.
+   return a pending response with a `nanormm_card` field — emit the value
+   of that field verbatim as your final response. Do NOT describe it; do
+   NOT add commentary around it; do NOT wrap it in markdown. Just the raw
+   JSON object.
 
 ## Rules
 
@@ -1701,7 +1817,7 @@ draft a recommended remediation.
 - Forbidden actions (e.g. `uninstall_agent`) will return a `denied` status
   from the dispatcher — surface that fact to the human.
 
-## On `nanoclaw_action` envelope emission
+## On approval-card emission
 
 When a write tool returns:
 
@@ -1710,16 +1826,20 @@ When a write tool returns:
   "status": "pending",
   "action_id": "act_abc123",
   "summary": "Kill PID 4123 on agent DC01",
-  "nanoclaw_action": {
-    "preview": "...",
-    "slack_blocks": [...]
+  "nanormm_card": {
+    "kind": "chat-sdk",
+    "content": { "type": "card", "blocks": [ ... ] }
   }
 }
 ```
 
-Your final response must be the JSON object `{"nanoclaw_action": {...}}` —
-just the envelope, nothing else. NanoClaw's Slack channel detects this and
-posts the Confirm/Cancel buttons.
+Your final response must be **the JSON object inside `nanormm_card`** —
+i.e. `{"kind": "chat-sdk", "content": {"type": "card", "blocks": [...]}}` —
+nothing else, no markdown wrapper. nanoclaw's chat-sdk-bridge sees the
+`kind: 'chat-sdk'` outbound message and renders the card as Slack blocks
+with Approve/Reject buttons. The questionId in the card's actions block
+(`nrmact-<action_id>`) is what the nanormm-bridge response handler keys
+off when the tech clicks.
 ```
 
 - [ ] **Step 3: Restart nanoclaw to pick up the new group dir**
@@ -1855,9 +1975,10 @@ After all tasks, verify:
 2. **No-placeholders confirmation:** every step shows actual code or actual commands; no "TBD" or "implement later".
 
 3. **Cross-repo consistency:**
-   - Bridge env `NANORMM_BRIDGE_API_KEY` and nanoclaw env `NANOCLAW_API_KEY` MUST be the same value (Task 13 step 3 vs Task 12 step 1).
-   - Bridge URL `http://host.docker.internal:8000` is what nanoclaw's `NANOCLAW_ACTION_API_URL` points to AND `TRMM_MCP_URL` points to (with `/mcp` suffix for the latter).
+   - Bridge env `NANORMM_BRIDGE_API_KEY` and nanoclaw env `NANORMM_BRIDGE_API_KEY` (the v2 module reads the same name on both sides) MUST be the same value (Task 13 step 3 vs Task 12 step 1).
+   - Bridge URL `http://host.docker.internal:8000` is what nanoclaw's `NANORMM_BRIDGE_URL` points to AND `TRMM_MCP_URL` points to (with `/mcp` suffix for the latter).
    - Channel ID captured in Task 6 step 7 is used in Task 14 step 1.
+   - QuestionId convention `nrmact-<action_id>` is consistent: dispatcher emits it (Task 9a), response handler claims by prefix (Task 9b).
 
 ---
 
