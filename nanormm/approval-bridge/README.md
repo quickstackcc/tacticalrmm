@@ -10,9 +10,10 @@ execute the action against TRMM.
 
 ## Endpoints
 
-- `POST /api/nanoclaw/actions/execute/` — execute an approved action
-- `POST /api/nanoclaw/actions/reject/`  — record an explicit rejection
-- `GET  /healthz`                        — Docker healthcheck
+- `POST /api/nanoclaw/actions/execute/` — execute an approved action (Bearer-auth)
+- `POST /api/nanoclaw/actions/reject/`  — record an explicit rejection (Bearer-auth)
+- `POST /mcp/`                           — MCP HTTP transport for trmm-mcp tools (no auth, internal-only binding)
+- `GET  /healthz`                        — systemd / load-balancer healthcheck
 
 ## Environment variables
 
@@ -33,5 +34,9 @@ processes. Bridge-specific vars start with `NANORMM_BRIDGE_`.
 
 ## Run locally
 
+Development:
+
     uv pip install -e '.[dev]'
     NANORMM_BRIDGE_API_KEY=devsecret python -m approval_bridge
+
+For production deployment on the qsrmm VM, see [`../deploy/README.md`](../deploy/README.md).
