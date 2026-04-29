@@ -28,8 +28,8 @@ tools:
 
 
 @pytest.mark.asyncio
-async def test_pending_response_includes_nanoclaw_action_envelope(envelope_env):
-    """Envelope shape matches nanoclaw's parseActionResponse expectations."""
+async def test_pending_response_includes_approval_card(envelope_env):
+    """Pending response carries a v2-Card-shaped `nanormm_card` envelope."""
     registry, dispatcher = envelope_env
 
     @registry.register(name="kill_process")
@@ -44,33 +44,28 @@ async def test_pending_response_includes_nanoclaw_action_envelope(envelope_env):
     )
 
     assert result["status"] == "pending"
-    assert "action_id" in result
-    assert "nanoclaw_action" in result
+    action_id = result["action_id"]
 
-    env = result["nanoclaw_action"]
-    assert env["preview"] == summary
+    env = result["nanormm_card"]
+    assert env["kind"] == "chat-sdk"
 
-    blocks = env["slack_blocks"]
-    assert isinstance(blocks, list)
-    # Must contain a section block with the summary text
-    sections = [b for b in blocks if b.get("type") == "section"]
-    assert any(summary in str(b) for b in sections)
+    content = env["content"]
+    assert content["type"] == "ask_question"
+    assert content["questionId"] == f"nrmact-{action_id}"
+    assert content["title"] == "Pending action"
+    assert content["question"] == summary
 
-    # Must contain an actions block with confirm + cancel buttons
-    actions_blocks = [b for b in blocks if b.get("type") == "actions"]
-    assert len(actions_blocks) == 1
-    elements = actions_blocks[0]["elements"]
-
-    confirm = next(e for e in elements if e["action_id"] == "nanoclaw_confirm")
-    assert confirm["value"] == result["action_id"]
-    assert confirm.get("style") == "primary"
-
-    cancel = next(e for e in elements if e["action_id"] == "nanoclaw_cancel")
-    assert cancel.get("style") == "danger"
+    options = content["options"]
+    approve = next(o for o in options if o["value"] == "approve")
+    reject = next(o for o in options if o["value"] == "reject")
+    assert approve["label"] == "Approve"
+    assert approve["selectedLabel"] == "✅ Approved"
+    assert reject["label"] == "Reject"
+    assert reject["selectedLabel"] == "❌ Rejected"
 
 
 @pytest.mark.asyncio
-async def test_auto_response_does_not_include_envelope(envelope_env):
+async def test_auto_response_does_not_include_card(envelope_env):
     registry, dispatcher = envelope_env
 
     @registry.register(name="list_alerts")
@@ -79,4 +74,5 @@ async def test_auto_response_does_not_include_envelope(envelope_env):
 
     result = await dispatcher.dispatch("list_alerts", {}, summary="")
     assert result["status"] == "executed"
+    assert "nanormm_card" not in result
     assert "nanoclaw_action" not in result

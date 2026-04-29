@@ -35,44 +35,36 @@ from ..policy import Authority, Policy
 ToolFn = Callable[..., Awaitable[Any]]
 
 
-def _build_nanoclaw_action_envelope(*, action_id: str, summary: str) -> dict[str, Any]:
-    """Construct a Slack-blocks envelope in the shape nanoclaw's
-    `parseActionResponse` looks for. The agent emits this verbatim as its
-    final response; nanoclaw detects the `nanoclaw_action` key and posts
-    the message with Confirm/Cancel buttons.
+def _build_approval_card_envelope(*, action_id: str, summary: str) -> dict[str, Any]:
+    """Build a v2-Card-shaped envelope for the agent to emit verbatim.
 
-    Block IDs `nanoclaw_confirm` and `nanoclaw_cancel` match nanoclaw's
-    Bolt action handlers; `value` on the confirm button must be the action_id
-    so the Confirm callback can POST the right token to approval-bridge.
+    Returned as the ``nanormm_card`` key of the dispatcher's pending response.
+    The recon agent's system prompt instructs it to emit the value of this
+    key as its final outbound message body. nanoclaw's chat-sdk-bridge
+    renders ``kind: 'chat-sdk'`` content with ``type: 'ask_question'`` as a
+    Slack card with action buttons.
+
+    The bridge encodes buttons as ``ncq:<questionId>:<idx>`` and resolves
+    the index back to option value on click. Our response handler in
+    nanoclaw-bridge checks ``questionId.startsWith('nrmact-')`` to claim.
+
+    questionId convention: ``nrmact-<action_id>`` — the response handler
+    in our nanoclaw fork keys off the ``nrmact-`` prefix to claim the click.
     """
+    question_id = f"nrmact-{action_id}"
     preview = summary or "Action requires confirmation"
     return {
-        "preview": preview,
-        "slack_blocks": [
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"*Pending action:*\n{preview}"},
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "action_id": "nanoclaw_confirm",
-                        "text": {"type": "plain_text", "text": "Confirm"},
-                        "style": "primary",
-                        "value": action_id,
-                    },
-                    {
-                        "type": "button",
-                        "action_id": "nanoclaw_cancel",
-                        "text": {"type": "plain_text", "text": "Cancel"},
-                        "style": "danger",
-                        "value": action_id,
-                    },
-                ],
-            },
-        ],
+        "kind": "chat-sdk",
+        "content": {
+            "type": "ask_question",
+            "questionId": question_id,
+            "title": "Pending action",
+            "question": preview,
+            "options": [
+                {"label": "Approve", "selectedLabel": "✅ Approved", "value": "approve"},
+                {"label": "Reject", "selectedLabel": "❌ Rejected", "value": "reject"},
+            ],
+        },
     }
 
 
@@ -143,7 +135,7 @@ class Dispatcher:
             "status": "pending",
             "action_id": action_id,
             "summary": summary,
-            "nanoclaw_action": _build_nanoclaw_action_envelope(
+            "nanormm_card": _build_approval_card_envelope(
                 action_id=action_id, summary=summary
             ),
         }
