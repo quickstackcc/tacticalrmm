@@ -71,3 +71,33 @@ def test_kill_process_schema_requires_agent_id(trmm_env, tmp_path, monkeypatch):
     desc = _tool_descriptor("kill_process")
     assert "agent_id" in desc.inputSchema["properties"]
     assert "agent_id" in desc.inputSchema["required"]
+
+
+def test_build_server_returns_populated_mcp_server(trmm_env, fake_redis, audit_dsn, tmp_path, monkeypatch):
+    """The Server instance returned by build_server() must have list_tools
+    handlers wired (so streamable_http_app() can serve it later)."""
+    import redis
+
+    monkeypatch.setattr(redis.Redis, "from_url", lambda *_a, **_k: fake_redis)
+
+    pol_path = tmp_path / "p.yaml"
+    pol_path.write_text(
+        """
+version: 1
+default: human_approval
+tools:
+  list_alerts: auto
+  kill_process: human_approval
+"""
+    )
+    monkeypatch.setenv("NANORMM_POLICY_PATH", str(pol_path))
+    monkeypatch.setenv("NANORMM_AUDIT_DSN", audit_dsn)
+
+    from trmm_mcp.server import build_server
+
+    server = build_server()
+
+    # Server has request handlers registered
+    assert server.mcp is not None
+    # Tool registry is populated with at least one read tool
+    assert "list_alerts" in server.tool_registry.tool_names()
