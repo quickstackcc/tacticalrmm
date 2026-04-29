@@ -1828,18 +1828,27 @@ When a write tool returns:
   "summary": "Kill PID 4123 on agent DC01",
   "nanormm_card": {
     "kind": "chat-sdk",
-    "content": { "type": "card", "blocks": [ ... ] }
+    "content": {
+      "type": "ask_question",
+      "questionId": "nrmact-act_abc123",
+      "title": "Pending action",
+      "question": "Kill PID 4123 on agent DC01",
+      "options": [
+        {"label": "Approve", "selectedLabel": "✅ Approved", "value": "approve"},
+        {"label": "Reject",  "selectedLabel": "❌ Rejected",  "value": "reject"}
+      ]
+    }
   }
 }
 ```
 
 Your final response must be **the JSON object inside `nanormm_card`** —
-i.e. `{"kind": "chat-sdk", "content": {"type": "card", "blocks": [...]}}` —
-nothing else, no markdown wrapper. nanoclaw's chat-sdk-bridge sees the
-`kind: 'chat-sdk'` outbound message and renders the card as Slack blocks
-with Approve/Reject buttons. The questionId in the card's actions block
-(`nrmact-<action_id>`) is what the nanormm-bridge response handler keys
-off when the tech clicks.
+i.e. the `{"kind": "chat-sdk", "content": {...}}` block — nothing else, no
+markdown wrapper, no commentary. nanoclaw's chat-sdk-bridge sees the
+`kind: 'chat-sdk'` outbound message with `type: 'ask_question'` and renders
+the card as Slack blocks with Approve/Reject buttons. The `questionId`
+(`nrmact-<action_id>`) is what the nanormm-bridge response handler keys off
+when the tech clicks.
 ```
 
 - [ ] **Step 3: Restart nanoclaw to pick up the new group dir**
