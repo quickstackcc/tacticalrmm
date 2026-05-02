@@ -12,6 +12,7 @@ against the lowlevel Server returned by `build_server()`.
 """
 
 import contextlib
+from contextvars import ContextVar
 
 from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
@@ -19,6 +20,34 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 
 from trmm_mcp.server import build_server
+
+# Set by _SessionHeaderMiddleware on each HTTP request, read by trmm-mcp's
+# call_tool handler so the Dispatcher knows which nanoclaw session to inject
+# the approval card into.
+SESSION_ID_VAR: ContextVar[str | None] = ContextVar(
+    "nanoclaw_session_id", default=None
+)
+
+
+class _SessionHeaderMiddleware:
+    """ASGI middleware that copies X-Nanoclaw-Session into SESSION_ID_VAR
+    for the duration of each HTTP request, resetting on completion.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers", []))
+            sid = headers.get(b"x-nanoclaw-session")
+            token = SESSION_ID_VAR.set(sid.decode() if sid else None)
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                SESSION_ID_VAR.reset(token)
+        else:
+            await self.app(scope, receive, send)
 
 
 def build_mcp_starlette_app() -> Starlette:
