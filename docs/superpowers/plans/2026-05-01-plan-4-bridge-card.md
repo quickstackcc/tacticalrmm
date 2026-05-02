@@ -1249,16 +1249,21 @@ All Phase 5+ tasks happen in `/home/jim/quickstack-cc/nanormm-nanoclaw` on the `
 - Create: `src/modules/nanormm-bridge/internal-server.ts`
 - Test: `src/modules/nanormm-bridge/internal-server.test.ts`
 
-**Note:** The code below uses `origin_platform_id` / `origin_channel_type` / `origin_thread_id` as the names of the routing fields on the `Session` record (matching the spec). Spike 0.2 confirms the actual column names in `/opt/nanoclaw/data/v2.db`. If they differ (e.g. the columns are bare `platform_id` / `channel_type` / `thread_id` without an `origin_` prefix), do a find-and-replace in this task's code blocks before running the test.
+**Schema notes from Spike 0.2** (`docs/superpowers/handoffs/2026-05-01-plan4-spikes.md`):
+
+- The outbound table is named **`messages_out`** (not `outbound`).
+- `messages_out` columns: `id, seq, in_reply_to, timestamp, deliver_after, recurrence, kind, platform_id, channel_type, thread_id, content`. Container writes ODD seq (1, 3, 5…), host writes EVEN (2, 4, 6…) by reading `MAX(seq)` and bumping. The bridge inject runs host-side, so use even seq.
+- `sessions` columns: `id, agent_group_id, messaging_group_id, thread_id, …`. There is NO `origin_*` prefix. `thread_id` is direct on sessions.
+- `messaging_groups` columns: `id, channel_type, platform_id, …`. The inject endpoint must JOIN: `sessions.messaging_group_id` → `messaging_groups.id` to read `channel_type` + `platform_id`.
 
 - [ ] **Step 1: Read existing helpers in nanoclaw**
 
 ```bash
 cd /home/jim/quickstack-cc/nanormm-nanoclaw
-grep -rn "openOutboundDb\|writeOutboundMessage\|insertOutbound" src/db/ | head -20
+grep -rn "getSession\|getMessagingGroup\|getOutboundDb" src/db/ | grep -v test | head -20
 ```
 
-Note the exact import paths and function names. The plan code below uses `openOutboundDb` from the existing delivery path; if the actual function is named differently (e.g., `getOutboundDb`), adjust.
+Confirm the exact import paths for `getSession` (returns the row from `sessions`) and the messaging-groups lookup (likely `getMessagingGroupById` or similar). The plan code below imports them from `../../db/sessions.js` and `../../db/messaging-groups.js` — adjust to whatever the real module paths/function names are.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -1278,10 +1283,16 @@ vi.mock('../../log.js', () => ({
   },
 }));
 
-// Mock the session lookup: tests substitute a session record per case.
+// Mock session + messaging-group lookups; tests set the values per case.
 const sessionMock = vi.hoisted(() => ({ value: null as any }));
+const mgMock = vi.hoisted(() => ({ value: null as any }));
+
 vi.mock('../../db/sessions.js', () => ({
   getSession: vi.fn((id: string) => sessionMock.value?.id === id ? sessionMock.value : undefined),
+}));
+// Adjust the module path/function name to match what step 1 found.
+vi.mock('../../db/messaging-groups.js', () => ({
+  getMessagingGroupById: vi.fn((id: string) => mgMock.value?.id === id ? mgMock.value : undefined),
 }));
 
 import { startInternalServer } from './internal-server.js';
@@ -1293,7 +1304,7 @@ let tmpDir: string;
 beforeEach(async () => {
   tmpDir = fs.mkdtempSync(path.join(tmpdir(), 'plan4-test-'));
   process.env.NANOCLAW_INTERNAL_PORT = '0'; // ephemeral
-  process.env.NANOCLAW_DATA_DIR = tmpDir;   // adjust if internal-server uses a different env
+  process.env.NANOCLAW_DATA_DIR = tmpDir;
   server = await startInternalServer();
   const addr = server.address();
   port = typeof addr === 'object' && addr ? addr.port : 0;
@@ -1303,7 +1314,26 @@ afterEach(() => {
   server.close();
   fs.rmSync(tmpDir, { recursive: true, force: true });
   sessionMock.value = null;
+  mgMock.value = null;
 });
+
+// Real messages_out schema, copied verbatim from src/db/schema.ts (and
+// confirmed by spike 0.2 against /opt/nanoclaw/data/v2-sessions/.../outbound.db).
+const MESSAGES_OUT_SCHEMA = `
+  CREATE TABLE messages_out (
+    id             TEXT PRIMARY KEY,
+    seq            INTEGER UNIQUE,
+    in_reply_to    TEXT,
+    timestamp      TEXT NOT NULL,
+    deliver_after  TEXT,
+    recurrence     TEXT,
+    kind           TEXT NOT NULL,
+    platform_id    TEXT,
+    channel_type   TEXT,
+    thread_id      TEXT,
+    content        TEXT NOT NULL
+  );
+`;
 
 describe('internal-server', () => {
   it('returns 404 for unknown session', async () => {
@@ -1322,7 +1352,8 @@ describe('internal-server', () => {
   });
 
   it('returns 400 for malformed body', async () => {
-    sessionMock.value = { id: 'sess-1', agent_group_id: 'ag-1' };  // present but body bad
+    sessionMock.value = { id: 'sess-1', agent_group_id: 'ag-1', messaging_group_id: 'mg-1', thread_id: 't1' };
+    mgMock.value = { id: 'mg-1', channel_type: 'slack', platform_id: 'C0X' };
     const r = await fetch(`http://127.0.0.1:${port}/internal/sessions/sess-1/inject-card`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1331,34 +1362,38 @@ describe('internal-server', () => {
     expect(r.status).toBe(400);
   });
 
-  it('writes ask_question row to outbound.db on success', async () => {
-    // Pre-create the per-session outbound.db skeleton matching nanoclaw's schema.
+  it('returns 404 when session has no messaging_group_id', async () => {
+    sessionMock.value = { id: 'sess-1', agent_group_id: 'ag-1', messaging_group_id: null, thread_id: null };
+    mgMock.value = null;
+    const r = await fetch(`http://127.0.0.1:${port}/internal/sessions/sess-1/inject-card`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ questionId: 'nrmact-x', title: 't', question: 'q', options: [] }),
+    });
+    expect(r.status).toBe(404);
+  });
+
+  it('writes ask_question row to messages_out on success', async () => {
     const sessionsDir = path.join(tmpDir, 'v2-sessions', 'ag-1', 'sess-1');
     fs.mkdirSync(sessionsDir, { recursive: true });
     const outDb = new Database(path.join(sessionsDir, 'outbound.db'));
-    // Use the same schema as nanoclaw/src/db/outbound.ts createOutboundDb
-    // (replace with actual columns from spike 0.2 if the schema differs).
-    outDb.exec(`
-      CREATE TABLE outbound (
-        id TEXT PRIMARY KEY,
-        kind TEXT NOT NULL,
-        platform_id TEXT,
-        channel_type TEXT,
-        thread_id TEXT,
-        content TEXT NOT NULL,
-        due_at TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      );
-    `);
+    outDb.exec(MESSAGES_OUT_SCHEMA);
+    // Seed an existing odd-seq row to verify the bridge picks the next EVEN seq.
+    outDb.prepare(
+      `INSERT INTO messages_out (id, seq, timestamp, kind, content) VALUES ('seed-1', 7, datetime('now'), 'normal', '{}')`
+    ).run();
     outDb.close();
 
     sessionMock.value = {
       id: 'sess-1',
       agent_group_id: 'ag-1',
-      // PLACEHOLDERS — replace with actual field names from spike 0.2
-      origin_platform_id: 'C0123456',
-      origin_channel_type: 'slack',
-      origin_thread_id: '1700000000.123456',
+      messaging_group_id: 'mg-1',
+      thread_id: '1700000000.123456',
+    };
+    mgMock.value = {
+      id: 'mg-1',
+      channel_type: 'slack',
+      platform_id: 'C0123456',
     };
 
     const r = await fetch(`http://127.0.0.1:${port}/internal/sessions/sess-1/inject-card`, {
@@ -1377,17 +1412,28 @@ describe('internal-server', () => {
     expect(r.status).toBe(202);
 
     const verify = new Database(path.join(sessionsDir, 'outbound.db'));
-    const rows = verify.prepare('SELECT id, kind, platform_id, channel_type, thread_id, content FROM outbound').all() as any[];
+    const rows = verify.prepare(
+      `SELECT id, seq, kind, platform_id, channel_type, thread_id, content, deliver_after, timestamp
+       FROM messages_out WHERE id != 'seed-1'`
+    ).all() as any[];
     verify.close();
 
     expect(rows).toHaveLength(1);
-    expect(rows[0].kind).toBe('normal');
-    expect(rows[0].platform_id).toBe('C0123456');
-    expect(rows[0].channel_type).toBe('slack');
-    expect(rows[0].thread_id).toBe('1700000000.123456');
-    const content = JSON.parse(rows[0].content);
+    const row = rows[0];
+    expect(row.kind).toBe('normal');
+    expect(row.platform_id).toBe('C0123456');
+    expect(row.channel_type).toBe('slack');
+    expect(row.thread_id).toBe('1700000000.123456');
+    expect(row.deliver_after).toBeNull();          // deliver immediately
+    expect(typeof row.timestamp).toBe('string');
+    expect(row.seq % 2).toBe(0);                   // host writes even seq
+    expect(row.seq).toBeGreaterThan(7);            // bumped past the seeded odd seq
+
+    const content = JSON.parse(row.content);
     expect(content.type).toBe('ask_question');
     expect(content.questionId).toBe('nrmact-act_xyz');
+    expect(content.title).toBe('Pending action');
+    expect(content.question).toBe('Kill PID 1234');
     expect(content.options).toHaveLength(2);
   });
 });
@@ -1410,12 +1456,13 @@ Create `src/modules/nanormm-bridge/internal-server.ts`:
 /**
  * Localhost-bound HTTP server that accepts approval-card injection requests
  * from the bridge. Writes a chat-sdk ask_question row into the session's
- * outbound.db; the existing delivery path then renders & posts the Slack card.
+ * outbound.db (messages_out table); the existing delivery poll then renders
+ * & posts the Slack card.
  *
  * Endpoint: POST /internal/sessions/:id/inject-card
  *   body: { questionId, title, question, options }
- *   200/202: row written
- *   404: session not found, or non-matching path/method
+ *   202: row written
+ *   404: session not found, session has no messaging_group_id, or non-matching path/method
  *   400: malformed body
  */
 import http from 'node:http';
@@ -1423,6 +1470,8 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { log } from '../../log.js';
 import { getSession } from '../../db/sessions.js';
+// Adjust this import to whatever step 1 confirmed.
+import { getMessagingGroupById } from '../../db/messaging-groups.js';
 
 const DEFAULT_PORT = 8765;
 const DATA_DIR = process.env.NANOCLAW_DATA_DIR ?? '/opt/nanoclaw/data';
@@ -1463,6 +1512,20 @@ function isInjectBody(b: unknown): b is InjectBody {
     && Array.isArray(o.options);
 }
 
+/**
+ * Read max(seq) from messages_out, return next EVEN value.
+ *
+ * Container writes odd seq (1,3,5…); host writes even (2,4,6…). The bridge
+ * inject is host-side. We don't read messages_in here because the seq
+ * cross-DB invariant is enforced by the container side; the host only
+ * needs to ensure its even-seq value is greater than any current value
+ * in messages_out, which is the only table it inserts into.
+ */
+function nextEvenOutSeq(db: Database.Database): number {
+  const max = (db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM messages_out').get() as { m: number }).m;
+  return max < 2 ? 2 : max + 2 - (max % 2);
+}
+
 export async function startInternalServer(): Promise<http.Server> {
   const port = Number(process.env.NANOCLAW_INTERNAL_PORT ?? DEFAULT_PORT);
   const server = http.createServer(async (req, res) => {
@@ -1471,15 +1534,23 @@ export async function startInternalServer(): Promise<http.Server> {
       return send(res, 404, { error: 'not found' });
     }
     const sessionId = m[1];
+
     const session = getSession(sessionId);
     if (!session) {
       return send(res, 404, { error: 'unknown session' });
+    }
+    if (!session.messaging_group_id) {
+      return send(res, 404, { error: 'session has no messaging_group_id' });
+    }
+    const mg = getMessagingGroupById(session.messaging_group_id);
+    if (!mg) {
+      return send(res, 404, { error: 'unknown messaging_group' });
     }
 
     let body: unknown;
     try {
       body = await readJson(req);
-    } catch (e) {
+    } catch {
       return send(res, 400, { error: 'malformed json' });
     }
     if (!isInjectBody(body)) {
@@ -1492,17 +1563,20 @@ export async function startInternalServer(): Promise<http.Server> {
     );
 
     const outDb = new Database(outboundPath);
+    let seq: number;
     try {
-      // Field names below assume spike 0.2 confirmed origin_platform_id /
-      // origin_channel_type / origin_thread_id. Replace if different.
+      seq = nextEvenOutSeq(outDb);
       outDb.prepare(`
-        INSERT INTO outbound (id, kind, platform_id, channel_type, thread_id, content, due_at, created_at)
-        VALUES (?, 'normal', ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages_out
+          (id, seq, in_reply_to, timestamp, deliver_after, recurrence, kind, platform_id, channel_type, thread_id, content)
+        VALUES
+          (?, ?, NULL, datetime('now'), NULL, NULL, 'normal', ?, ?, ?, ?)
       `).run(
         messageId,
-        (session as any).origin_platform_id,
-        (session as any).origin_channel_type,
-        (session as any).origin_thread_id,
+        seq,
+        mg.platform_id,
+        mg.channel_type,
+        session.thread_id,
         JSON.stringify({
           type: 'ask_question',
           questionId: body.questionId,
@@ -1510,17 +1584,15 @@ export async function startInternalServer(): Promise<http.Server> {
           question: body.question,
           options: body.options,
         }),
-        new Date().toISOString(),
-        new Date().toISOString(),
       );
     } finally {
       outDb.close();
     }
 
     log.info('nanormm-bridge inject-card written', {
-      sessionId, messageId, questionId: body.questionId,
+      sessionId, messageId, seq, questionId: body.questionId,
     });
-    return send(res, 202, { accepted: true, messageId });
+    return send(res, 202, { accepted: true, messageId, seq });
   });
 
   return new Promise((resolve) => {
@@ -1540,7 +1612,7 @@ export async function startInternalServer(): Promise<http.Server> {
 npx vitest run src/modules/nanormm-bridge/internal-server.test.ts
 ```
 
-Expected: 4 passed.
+Expected: 5 passed (4 status checks + the success path).
 
 - [ ] **Step 6: Commit**
 
