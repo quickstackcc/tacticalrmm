@@ -21,6 +21,10 @@ class BridgeSettings(BaseSettings):
     host: str = Field(default="0.0.0.0", alias="NANORMM_BRIDGE_HOST")  # noqa: S104
     port: int = Field(default=8000, alias="NANORMM_BRIDGE_PORT")
     mcp_path: str = Field(default="/mcp", alias="NANORMM_MCP_PATH")
+    nanoclaw_internal_url: str = Field(
+        default="http://127.0.0.1:8765",
+        alias="NANOCLAW_INTERNAL_URL",
+    )
 
     @property
     def trmm(self) -> TrmmMcpSettings:
