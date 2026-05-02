@@ -102,7 +102,11 @@ class Dispatcher:
             summary=summary,
             policy_decision=authority.value,
         )
-        if self._inject is not None and session_id:
+        if self._inject is not None:
+            if not session_id:
+                raise PolicyError(
+                    "session_id required for human_approval when inject_client wired"
+                )
             await self._inject.inject_card(
                 session_id=session_id,
                 question_id=f"nrmact-{action_id}",
