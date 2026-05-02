@@ -13,6 +13,8 @@ against the lowlevel Server returned by `build_server()`.
 
 import contextlib
 from contextvars import ContextVar
+from dataclasses import dataclass
+from typing import Any
 
 from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
@@ -56,7 +58,7 @@ class _SessionHeaderMiddleware:
             await self.app(scope, receive, send)
 
 
-def build_mcp_starlette_app() -> ASGIApp:
+def build_mcp_starlette_app(dispatcher=None) -> ASGIApp:
     """Construct the Starlette ASGI app that serves trmm-mcp over HTTP.
 
     Uses `stateless=True` and `json_response=True` so:
@@ -66,8 +68,58 @@ def build_mcp_starlette_app() -> ASGIApp:
     The session manager's `run()` lifespan is wired into the returned app so
     mounting it into FastAPI's lifespan via `mcp_app.router.lifespan_context`
     starts and stops the session manager correctly.
+
+    Pass `dispatcher` if you have a pre-built Dispatcher with inject_client
+    wired (e.g., from approval-bridge's deps.py). If None, a fresh dispatcher
+    is constructed via build_server().
     """
-    server = build_server()
+    if dispatcher is None:
+        server = build_server()
+    else:
+        # Use the provided dispatcher with inject_client already wired.
+        # We need to construct the MCP server with the provided dispatcher
+        # and the tool registry from it. Extract the registry from the old
+        # server to avoid duplication.
+        from mcp.server import Server
+        from trmm_mcp.server import _register_all, _tool_descriptor
+
+        old_server = build_server()
+        mcp = Server("trmm-mcp")
+
+        @mcp.list_tools()
+        async def _list_tools():
+            return [_tool_descriptor(name) for name in dispatcher._registry.tool_names()]
+
+        @mcp.call_tool()
+        async def _call_tool(name: str, arguments: dict):
+            from mcp.types import TextContent
+
+            # Read X-Nanoclaw-Session populated by the bridge's middleware.
+            session_id: str | None = None
+            try:
+                session_id = SESSION_ID_VAR.get()
+            except (NameError, LookupError):
+                pass
+
+            result = await dispatcher.dispatch(name, arguments, session_id=session_id)
+            # Serialize the result to JSON string.
+            import json
+
+            return [TextContent(type="text", text=json.dumps(result, default=str, separators=(",", ":")))]
+
+        @dataclass
+        class TrmmMcpServer:
+            mcp: Any
+            tool_registry: Any
+            dispatcher: Any
+            trmm_client: Any
+
+        server = TrmmMcpServer(
+            mcp=mcp,
+            tool_registry=dispatcher._registry,
+            dispatcher=dispatcher,
+            trmm_client=old_server.trmm_client,
+        )
 
     session_manager = StreamableHTTPSessionManager(
         app=server.mcp,

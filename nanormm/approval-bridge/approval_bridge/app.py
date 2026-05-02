@@ -20,7 +20,10 @@ def create_app(settings: BridgeSettings | None = None) -> FastAPI:
     if settings is None:
         settings = BridgeSettings()
 
-    mcp_app = build_mcp_starlette_app()
+    # Build the dispatcher with inject_client wired, then pass it to the
+    # MCP app so tool calls have access to the inject endpoint.
+    dispatcher = build_dispatcher_for_bridge(settings)
+    mcp_app = build_mcp_starlette_app(dispatcher=dispatcher)
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -36,7 +39,7 @@ def create_app(settings: BridgeSettings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
-    app.state.dispatcher = build_dispatcher_for_bridge(settings)
+    app.state.dispatcher = dispatcher
 
     app.include_router(public_router)
     app.include_router(authed_router, dependencies=[verify_bearer(settings)])
