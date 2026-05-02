@@ -18,6 +18,7 @@ from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.applications import Starlette
 from starlette.routing import Route
+from starlette.types import ASGIApp
 
 from trmm_mcp.server import build_server
 
@@ -37,6 +38,11 @@ class _SessionHeaderMiddleware:
     def __init__(self, app):
         self.app = app
 
+    def __getattr__(self, name):
+        # Delegate attribute access to the wrapped app so lifespan_context
+        # and other router attributes are accessible through the middleware.
+        return getattr(self.app, name)
+
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
             headers = dict(scope.get("headers", []))
@@ -50,7 +56,7 @@ class _SessionHeaderMiddleware:
             await self.app(scope, receive, send)
 
 
-def build_mcp_starlette_app() -> Starlette:
+def build_mcp_starlette_app() -> ASGIApp:
     """Construct the Starlette ASGI app that serves trmm-mcp over HTTP.
 
     Uses `stateless=True` and `json_response=True` so:
@@ -76,7 +82,9 @@ def build_mcp_starlette_app() -> Starlette:
         async with session_manager.run():
             yield
 
-    return Starlette(
+    starlette_app = Starlette(
         routes=[Route("/", endpoint=asgi_handler)],
         lifespan=lifespan,
     )
+    # Wrap so SESSION_ID_VAR is populated before the MCP handler runs.
+    return _SessionHeaderMiddleware(starlette_app)

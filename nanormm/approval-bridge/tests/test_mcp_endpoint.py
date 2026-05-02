@@ -91,3 +91,50 @@ def test_mcp_endpoint_lists_trmm_tools(bridge_settings):
         body_text = r.text
         # Look for one of the known tool names in either parsed JSON or SSE body
         assert "list_alerts" in body_text or "kill_process" in body_text
+
+
+def test_mcp_endpoint_sets_session_contextvar(bridge_settings, monkeypatch):
+    """X-Nanoclaw-Session on /mcp/ requests must reach SESSION_ID_VAR."""
+    from approval_bridge.app import create_app
+    from approval_bridge.mcp_app import SESSION_ID_VAR
+
+    captured: list[str | None] = []
+
+    # Patch the dispatcher's dispatch so we can see what session_id arrives.
+    # We don't actually call any tool — we read the contextvar inside dispatch.
+    from trmm_mcp.tools._base import Dispatcher
+    orig_dispatch = Dispatcher.dispatch
+
+    async def spying_dispatch(self, name, args, *, summary="", session_id=None):
+        captured.append(SESSION_ID_VAR.get())
+        return {"status": "executed", "result": None}
+
+    monkeypatch.setattr(Dispatcher, "dispatch", spying_dispatch)
+
+    app = create_app(bridge_settings)
+    with TestClient(app) as client:
+        # Initialize
+        init = client.post(
+            "/mcp/",
+            json={"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                             "clientInfo": {"name": "test", "version": "0"}}},
+            headers={"accept": "application/json, text/event-stream",
+                     "content-type": "application/json",
+                     "x-nanoclaw-session": "session-77"},
+        )
+        sid = init.headers.get("mcp-session-id")
+        h = {"accept": "application/json, text/event-stream",
+             "content-type": "application/json",
+             "x-nanoclaw-session": "session-77"}
+        if sid:
+            h["mcp-session-id"] = sid
+
+        # Call any registered tool — list_alerts is auto in conftest's policy.
+        client.post(
+            "/mcp/",
+            json={"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                  "params": {"name": "list_alerts", "arguments": {}}},
+            headers=h,
+        )
+    assert captured == ["session-77"]
