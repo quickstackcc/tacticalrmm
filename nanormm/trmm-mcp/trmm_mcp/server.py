@@ -58,7 +58,17 @@ def build_server() -> TrmmMcpServer:
 
     @mcp.call_tool()
     async def _call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-        result = await dispatcher.dispatch(name, arguments)
+        # Read X-Nanoclaw-Session populated by the bridge's middleware. Lazy
+        # import: trmm-mcp's stdio path doesn't have approval_bridge installed,
+        # so try/except keeps the stdio path independent.
+        session_id: str | None = None
+        try:
+            from approval_bridge.mcp_app import SESSION_ID_VAR  # type: ignore
+            session_id = SESSION_ID_VAR.get()
+        except ImportError:
+            pass
+
+        result = await dispatcher.dispatch(name, arguments, session_id=session_id)
         return [TextContent(type="text", text=_serialize(result))]
 
     return TrmmMcpServer(mcp=mcp, tool_registry=registry, dispatcher=dispatcher, trmm_client=trmm)

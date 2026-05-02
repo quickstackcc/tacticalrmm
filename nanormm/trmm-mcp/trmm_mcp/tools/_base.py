@@ -35,38 +35,6 @@ from ..policy import Authority, Policy
 ToolFn = Callable[..., Awaitable[Any]]
 
 
-def _build_approval_card_envelope(*, action_id: str, summary: str) -> dict[str, Any]:
-    """Build a v2-Card-shaped envelope for the agent to emit verbatim.
-
-    Returned as the ``nanormm_card`` key of the dispatcher's pending response.
-    The recon agent's system prompt instructs it to emit the value of this
-    key as its final outbound message body. nanoclaw's chat-sdk-bridge
-    renders ``kind: 'chat-sdk'`` content with ``type: 'ask_question'`` as a
-    Slack card with action buttons.
-
-    The bridge encodes buttons as ``ncq:<questionId>:<idx>`` and resolves
-    the index back to option value on click. Our response handler in
-    nanoclaw-bridge checks ``questionId.startsWith('nrmact-')`` to claim.
-
-    questionId convention: ``nrmact-<action_id>`` — the response handler
-    in our nanoclaw fork keys off the ``nrmact-`` prefix to claim the click.
-    """
-    question_id = f"nrmact-{action_id}"
-    preview = summary or "Action requires confirmation"
-    return {
-        "kind": "chat-sdk",
-        "content": {
-            "type": "ask_question",
-            "questionId": question_id,
-            "title": "Pending action",
-            "question": preview,
-            "options": [
-                {"label": "Approve", "selectedLabel": "✅ Approved", "value": "approve"},
-                {"label": "Reject", "selectedLabel": "❌ Rejected", "value": "reject"},
-            ],
-        },
-    }
-
 
 class ToolRegistry:
     def __init__(self) -> None:
@@ -96,11 +64,13 @@ class Dispatcher:
         policy: Policy,
         approvals: ApprovalRegistry,
         audit: AuditLog,
+        inject_client: Any | None = None,
     ):
         self._registry = registry
         self._policy = policy
         self._approvals = approvals
         self._audit = audit
+        self._inject = inject_client
 
     async def dispatch(
         self,
@@ -108,6 +78,7 @@ class Dispatcher:
         args: dict[str, Any],
         *,
         summary: str = "",
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         fn = self._registry.get(tool_name)
         if fn is None:
@@ -131,13 +102,27 @@ class Dispatcher:
             summary=summary,
             policy_decision=authority.value,
         )
+        if self._inject is not None:
+            if not session_id:
+                raise PolicyError(
+                    "session_id required for human_approval when inject_client wired"
+                )
+            await self._inject.inject_card(
+                session_id=session_id,
+                question_id=f"nrmact-{action_id}",
+                title="Pending action",
+                question=summary or "Action requires confirmation",
+                options=[
+                    {"label": "Approve", "selectedLabel": "✅ Approved",
+                     "value": "approve"},
+                    {"label": "Reject", "selectedLabel": "❌ Rejected",
+                     "value": "reject"},
+                ],
+            )
         return {
             "status": "pending",
             "action_id": action_id,
             "summary": summary,
-            "nanormm_card": _build_approval_card_envelope(
-                action_id=action_id, summary=summary
-            ),
         }
 
     async def resume(self, action_id: str) -> dict[str, Any]:

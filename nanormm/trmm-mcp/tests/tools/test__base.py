@@ -54,6 +54,7 @@ async def test_gated_tool_returns_pending_and_writes_audit(registry_env, audit_d
     assert result["status"] == "pending"
     assert result["action_id"].startswith("act_")
     assert result["summary"] == "Multiply 5 by 10"
+    assert "nanormm_card" not in result
 
     with psycopg.connect(audit_dsn) as conn, conn.cursor() as cur:
         cur.execute("SELECT tool_name, policy_decision, summary FROM nanormm_actions")
@@ -176,3 +177,122 @@ async def test_recover_skips_pending_and_rejected(registry_env):
 
     recovered = await dispatcher.recover()
     assert recovered == [a1]
+
+
+class _StubInjectClient:
+    """Records calls; raises if instructed."""
+
+    def __init__(self, raise_exc: Exception | None = None):
+        self.calls: list[dict] = []
+        self.raise_exc = raise_exc
+
+    async def inject_card(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.raise_exc is not None:
+            raise self.raise_exc
+
+
+@pytest.fixture
+def gated_env_with_inject(fake_redis, audit_dsn, tmp_path):
+    """Same as registry_env but Dispatcher has an InjectClient stub wired."""
+    from trmm_mcp.approvals import ApprovalRegistry
+    from trmm_mcp.audit import AuditLog
+    from trmm_mcp.policy import Policy
+    from trmm_mcp.tools._base import Dispatcher, ToolRegistry
+
+    pol_path = tmp_path / "p.yaml"
+    pol_path.write_text(
+        """
+version: 1
+default: human_approval
+tools:
+  always_gated: human_approval
+"""
+    )
+    pol = Policy.load(pol_path)
+    approvals = ApprovalRegistry(fake_redis, ttl_seconds=60)
+    audit = AuditLog(audit_dsn)
+    registry = ToolRegistry()
+    inject = _StubInjectClient()
+    dispatcher = Dispatcher(
+        registry=registry,
+        policy=pol,
+        approvals=approvals,
+        audit=audit,
+        inject_client=inject,
+    )
+    return registry, dispatcher, inject
+
+
+@pytest.mark.asyncio
+async def test_gated_tool_with_inject_calls_inject(gated_env_with_inject):
+    registry, dispatcher, inject = gated_env_with_inject
+
+    @registry.register(name="always_gated")
+    async def my_gated(x: int) -> int:
+        return x * 10
+
+    result = await dispatcher.dispatch(
+        "always_gated", {"x": 5}, summary="Multiply 5 by 10", session_id="sess-99"
+    )
+    assert result["status"] == "pending"
+    assert result["action_id"].startswith("act_")
+    assert result["summary"] == "Multiply 5 by 10"
+    assert "nanormm_card" not in result
+
+    assert len(inject.calls) == 1
+    call = inject.calls[0]
+    assert call["session_id"] == "sess-99"
+    assert call["question_id"] == f"nrmact-{result['action_id']}"
+    assert call["title"] == "Pending action"
+    assert call["question"] == "Multiply 5 by 10"
+    assert call["options"] == [
+        {"label": "Approve", "selectedLabel": "✅ Approved", "value": "approve"},
+        {"label": "Reject", "selectedLabel": "❌ Rejected", "value": "reject"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_gated_tool_with_inject_missing_session_id_raises(gated_env_with_inject):
+    from trmm_mcp.exceptions import PolicyError
+
+    registry, dispatcher, _inject = gated_env_with_inject
+
+    @registry.register(name="always_gated")
+    async def my_gated() -> int:
+        return 1
+
+    with pytest.raises(PolicyError, match="session_id"):
+        await dispatcher.dispatch("always_gated", {}, summary="x", session_id=None)
+
+
+@pytest.mark.asyncio
+async def test_gated_tool_inject_failure_raises(gated_env_with_inject):
+    import httpx
+
+    registry, dispatcher, inject = gated_env_with_inject
+    inject.raise_exc = httpx.ConnectError("nanoclaw down")
+
+    @registry.register(name="always_gated")
+    async def my_gated() -> int:
+        return 1
+
+    with pytest.raises(httpx.ConnectError):
+        await dispatcher.dispatch(
+            "always_gated", {}, summary="x", session_id="sess-99"
+        )
+
+
+@pytest.mark.asyncio
+async def test_gated_tool_no_inject_client_works(registry_env):
+    """When inject_client=None (stdio mode), HUMAN_APPROVAL still works
+    and returns plain pending response without nanormm_card."""
+    registry, dispatcher = registry_env
+
+    @registry.register(name="always_gated")
+    async def my_gated() -> int:
+        return 1
+
+    result = await dispatcher.dispatch("always_gated", {}, summary="x")
+    assert result["status"] == "pending"
+    assert "nanormm_card" not in result
