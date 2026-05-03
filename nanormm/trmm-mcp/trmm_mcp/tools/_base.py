@@ -35,46 +35,6 @@ from ..policy import Authority, Policy
 ToolFn = Callable[..., Awaitable[Any]]
 
 
-def _build_nanoclaw_action_envelope(*, action_id: str, summary: str) -> dict[str, Any]:
-    """Construct a Slack-blocks envelope in the shape nanoclaw's
-    `parseActionResponse` looks for. The agent emits this verbatim as its
-    final response; nanoclaw detects the `nanoclaw_action` key and posts
-    the message with Confirm/Cancel buttons.
-
-    Block IDs `nanoclaw_confirm` and `nanoclaw_cancel` match nanoclaw's
-    Bolt action handlers; `value` on the confirm button must be the action_id
-    so the Confirm callback can POST the right token to approval-bridge.
-    """
-    preview = summary or "Action requires confirmation"
-    return {
-        "preview": preview,
-        "slack_blocks": [
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"*Pending action:*\n{preview}"},
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "action_id": "nanoclaw_confirm",
-                        "text": {"type": "plain_text", "text": "Confirm"},
-                        "style": "primary",
-                        "value": action_id,
-                    },
-                    {
-                        "type": "button",
-                        "action_id": "nanoclaw_cancel",
-                        "text": {"type": "plain_text", "text": "Cancel"},
-                        "style": "danger",
-                        "value": action_id,
-                    },
-                ],
-            },
-        ],
-    }
-
 
 class ToolRegistry:
     def __init__(self) -> None:
@@ -104,11 +64,13 @@ class Dispatcher:
         policy: Policy,
         approvals: ApprovalRegistry,
         audit: AuditLog,
+        inject_client: Any | None = None,
     ):
         self._registry = registry
         self._policy = policy
         self._approvals = approvals
         self._audit = audit
+        self._inject = inject_client
 
     async def dispatch(
         self,
@@ -116,6 +78,7 @@ class Dispatcher:
         args: dict[str, Any],
         *,
         summary: str = "",
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         fn = self._registry.get(tool_name)
         if fn is None:
@@ -139,13 +102,27 @@ class Dispatcher:
             summary=summary,
             policy_decision=authority.value,
         )
+        if self._inject is not None:
+            if not session_id:
+                raise PolicyError(
+                    "session_id required for human_approval when inject_client wired"
+                )
+            await self._inject.inject_card(
+                session_id=session_id,
+                question_id=f"nrmact-{action_id}",
+                title="Pending action",
+                question=summary or "Action requires confirmation",
+                options=[
+                    {"label": "Approve", "selectedLabel": "✅ Approved",
+                     "value": "approve"},
+                    {"label": "Reject", "selectedLabel": "❌ Rejected",
+                     "value": "reject"},
+                ],
+            )
         return {
             "status": "pending",
             "action_id": action_id,
             "summary": summary,
-            "nanoclaw_action": _build_nanoclaw_action_envelope(
-                action_id=action_id, summary=summary
-            ),
         }
 
     async def resume(self, action_id: str) -> dict[str, Any]:

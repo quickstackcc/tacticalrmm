@@ -8,6 +8,10 @@ from approval_bridge.app import create_app
 @pytest.fixture
 def client(bridge_settings):
     app = create_app(bridge_settings)
+    # Detach inject_client so _seed_pending can dispatch directly without
+    # threading session_id through the MCP middleware (these tests target
+    # the /api/nanoclaw/actions/execute/ path, not the inject flow).
+    app.state.dispatcher._inject = None
     return TestClient(app)
 
 

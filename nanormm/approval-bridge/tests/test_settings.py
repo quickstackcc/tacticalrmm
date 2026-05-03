@@ -55,3 +55,16 @@ def test_overrides_host_and_port(monkeypatch, base_env):
     s = BridgeSettings()
     assert s.host == "127.0.0.1"
     assert s.port == 9001
+
+
+def test_nanoclaw_internal_url_default(monkeypatch, base_env):
+    monkeypatch.setenv("NANORMM_BRIDGE_API_KEY", "x")
+    s = BridgeSettings()
+    assert s.nanoclaw_internal_url == "http://127.0.0.1:8765"
+
+
+def test_nanoclaw_internal_url_overridable(monkeypatch, base_env):
+    monkeypatch.setenv("NANORMM_BRIDGE_API_KEY", "x")
+    monkeypatch.setenv("NANOCLAW_INTERNAL_URL", "http://example.local:9999")
+    s = BridgeSettings()
+    assert s.nanoclaw_internal_url == "http://example.local:9999"
