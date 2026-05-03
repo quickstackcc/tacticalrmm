@@ -75,6 +75,21 @@ class TrmmClient:
                 resp.status_code, str(resp.request.url), f"invalid JSON in response: {e}"
             ) from e
 
+    async def delete(self, path: str) -> Any:
+        try:
+            resp = await self._client.delete(path)
+        except httpx.HTTPError as e:
+            raise TrmmApiError(0, path, f"network error: {e}") from e
+        self._raise_for_status(resp)
+        if not resp.content:
+            return None
+        try:
+            return resp.json()
+        except _json.JSONDecodeError as e:
+            raise TrmmApiError(
+                resp.status_code, str(resp.request.url), f"invalid JSON in response: {e}"
+            ) from e
+
     async def aclose(self) -> None:
         await self._client.aclose()
 

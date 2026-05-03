@@ -80,8 +80,8 @@ def test_reject_happy_path(client, auth_headers, postgresql):
 
 
 def test_reject_already_executed_returns_409(client, auth_headers, mock_trmm):
-    mock_trmm.post("/agents/agent-1/processes/kill/").mock(
-        return_value=Response(200, json={"ok": True})
+    mock_trmm.delete("/agents/agent-1/processes/4123/").mock(
+        return_value=Response(200, json="Process with PID: 4123 was ended successfully")
     )
     token = _seed_pending(client)
     # Execute first

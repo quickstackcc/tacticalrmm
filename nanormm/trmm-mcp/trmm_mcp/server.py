@@ -104,11 +104,6 @@ def _register_all(registry: ToolRegistry, trmm: TrmmClient) -> None:
     bind("kill_process", actions.kill_process)
     bind("restart_service", actions.restart_service)
     bind("reboot_agent", actions.reboot_agent)
-    bind("collect_artifacts", actions.collect_artifacts)
-    bind("isolate_host", actions.isolate_host)
-    bind("unisolate_host", actions.unisolate_host)
-    bind("disable_account", actions.disable_account)
-    bind("pause_scheduled_task", actions.pause_scheduled_task)
 
 
 def _tool_descriptor(name: str) -> Tool:

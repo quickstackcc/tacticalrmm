@@ -34,11 +34,6 @@ tools:
         "kill_process",
         "restart_service",
         "reboot_agent",
-        "collect_artifacts",
-        "isolate_host",
-        "unisolate_host",
-        "disable_account",
-        "pause_scheduled_task",
     }
     missing = expected - set(names)
     assert not missing, f"server is missing tools: {missing}"

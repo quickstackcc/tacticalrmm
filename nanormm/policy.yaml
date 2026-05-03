@@ -22,8 +22,3 @@ tools:
   kill_process: human_approval
   restart_service: human_approval
   reboot_agent: human_approval
-  collect_artifacts: human_approval
-  isolate_host: human_approval
-  unisolate_host: human_approval
-  disable_account: human_approval
-  pause_scheduled_task: human_approval

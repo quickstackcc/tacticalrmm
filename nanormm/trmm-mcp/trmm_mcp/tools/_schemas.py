@@ -144,19 +144,21 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         },
     },
     "kill_process": {
-        "description": "Kill a process on an agent by PID or name. (write)",
+        "description": "Kill a process on an agent by PID. (write)",
         "schema": {
             "type": "object",
             "properties": {
                 "agent_id": _AGENT_ID,
                 "pid": {"type": "integer"},
-                "name": {"type": "string"},
             },
-            "required": ["agent_id"],
+            "required": ["agent_id", "pid"],
         },
     },
     "restart_service": {
-        "description": "Restart a Windows/Linux service on an agent. (write)",
+        "description": (
+            "Restart a Windows service on an agent. service_name is the service "
+            "short name (e.g. W3SVC, Spooler), not the display name. (write)"
+        ),
         "schema": {
             "type": "object",
             "properties": {
@@ -172,68 +174,6 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "type": "object",
             "properties": {"agent_id": _AGENT_ID},
             "required": ["agent_id"],
-        },
-    },
-    "collect_artifacts": {
-        "description": (
-            "Trigger artifact collection on an agent. artifact_set must be one of: "
-            "event_logs, process_list, network_connections, scheduled_tasks, "
-            "installed_software. (write)"
-        ),
-        "schema": {
-            "type": "object",
-            "properties": {
-                "agent_id": _AGENT_ID,
-                "artifact_set": {
-                    "type": "string",
-                    "enum": [
-                        "event_logs",
-                        "process_list",
-                        "network_connections",
-                        "scheduled_tasks",
-                        "installed_software",
-                    ],
-                },
-            },
-            "required": ["agent_id", "artifact_set"],
-        },
-    },
-    "isolate_host": {
-        "description": "Isolate an agent from the network via firewall script. (write)",
-        "schema": {
-            "type": "object",
-            "properties": {"agent_id": _AGENT_ID},
-            "required": ["agent_id"],
-        },
-    },
-    "unisolate_host": {
-        "description": "Reverse host isolation. (write)",
-        "schema": {
-            "type": "object",
-            "properties": {"agent_id": _AGENT_ID},
-            "required": ["agent_id"],
-        },
-    },
-    "disable_account": {
-        "description": "Disable a local user account on an agent. (write)",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "agent_id": _AGENT_ID,
-                "username": {"type": "string"},
-            },
-            "required": ["agent_id", "username"],
-        },
-    },
-    "pause_scheduled_task": {
-        "description": "Pause a scheduled task on an agent by integer task ID. (write)",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "agent_id": _AGENT_ID,
-                "task_id": {"type": "integer"},
-            },
-            "required": ["agent_id", "task_id"],
         },
     },
 }
