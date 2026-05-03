@@ -19,7 +19,7 @@ set -euo pipefail
 NANORMM_USER="nanormm"
 INSTALL_ROOT="/opt/nanormm"
 BRIDGE_DIR="${INSTALL_ROOT}/approval-bridge"
-QSRMM_REPO_URL="git@github.com:quickstack-cc/qsrmm.git"
+QSRMM_REPO_URL="https://github.com/quickstackcc/tacticalrmm.git"
 ENV_FILE="/etc/nanormm/bridge.env"
 SERVICE_NAME="approval-bridge"
 LOG_DIR="/var/log/nanormm"
