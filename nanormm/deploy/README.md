@@ -36,11 +36,39 @@ sudo chown nanormm:nanormm /etc/nanormm/bridge.env
 sudo /path/to/qsrmm/nanormm/deploy/install-bridge.sh
 ```
 
-## Upgrade (after merging new bridge code to develop)
+## Upgrade (after merging new bridge or trmm-mcp code to develop)
 
 ```bash
 sudo /opt/nanormm/qsrmm/nanormm/deploy/install-bridge.sh
 ```
+
+The bridge's `pyproject.toml` declares trmm-mcp with `editable = true` in
+`[tool.uv.sources]`, so `uv pip install -e .` installs both packages
+editable. The install script also passes `--reinstall-package` for both
+wheels, which forces uv to rebuild from the freshly-pulled source on
+upgrade — without it, uv's resolver short-circuits when the version
+string hasn't changed, and edits to trmm-mcp source silently don't take
+effect on restart.
+
+## Recon prompt deployment
+
+The recon agent prompt lives at `nanormm/recon/CLAUDE.md` in this repo and
+must be copied onto the VM at `/opt/nanoclaw/groups/recon/CLAUDE.local.md`
+when changed. Nanoclaw runs as its own systemd service (`nanoclaw.service`),
+separate from the bridge.
+
+```bash
+# From the VM, after install-bridge.sh has refreshed the qsrmm checkout:
+sudo cp /opt/nanormm/qsrmm/nanormm/recon/CLAUDE.md \
+        /opt/nanoclaw/groups/recon/CLAUDE.local.md
+sudo chown nanoclaw:nanoclaw /opt/nanoclaw/groups/recon/CLAUDE.local.md
+sudo systemctl restart nanoclaw
+```
+
+The destination filename is `CLAUDE.local.md` (with `.local`) by nanoclaw
+convention — it is the per-group user-content file. The sibling `CLAUDE.md`
+and `.claude-fragments/` on the VM are auto-composed at spawn and should
+not be touched.
 
 ## Verify
 

@@ -44,13 +44,13 @@ fi
 chmod 600 "${ENV_FILE}"
 chown "${NANORMM_USER}:${NANORMM_USER}" "${ENV_FILE}"
 
-echo "==> Cloning or updating qsrmm checkout (sparse: only nanormm/approval-bridge + nanormm/trmm-mcp)"
+echo "==> Cloning or updating qsrmm checkout (sparse: only nanormm/approval-bridge + nanormm/trmm-mcp + nanormm/recon)"
 QSRMM_CHECKOUT="${INSTALL_ROOT}/qsrmm"
 if [[ ! -d "${QSRMM_CHECKOUT}/.git" ]]; then
     sudo -u "${NANORMM_USER}" git clone --depth 1 --filter=blob:none --sparse \
         "${QSRMM_REPO_URL}" "${QSRMM_CHECKOUT}"
     sudo -u "${NANORMM_USER}" git -C "${QSRMM_CHECKOUT}" sparse-checkout set \
-        nanormm/approval-bridge nanormm/trmm-mcp nanormm/policy.yaml
+        nanormm/approval-bridge nanormm/trmm-mcp nanormm/policy.yaml nanormm/recon
 else
     sudo -u "${NANORMM_USER}" git -C "${QSRMM_CHECKOUT}" fetch --depth 1 origin develop
     sudo -u "${NANORMM_USER}" git -C "${QSRMM_CHECKOUT}" reset --hard origin/develop
@@ -61,13 +61,19 @@ ln -sfn "${QSRMM_CHECKOUT}/nanormm/approval-bridge" "${BRIDGE_DIR}"
 ln -sfn "${QSRMM_CHECKOUT}/nanormm/policy.yaml" "${INSTALL_ROOT}/policy.yaml"
 
 echo "==> Building venv with uv"
+# --reinstall-package on both wheels forces uv to rebuild from the
+# freshly-pulled source on upgrade, even when the version string didn't
+# change. Without this, `uv pip install -e .` skips trmm-mcp because the
+# version is already satisfied, and edits to trmm-mcp source silently
+# don't take effect on restart. trmm-mcp is editable via the bridge's
+# pyproject [tool.uv.sources] entry, so the single `-e .` pulls both.
 sudo -u "${NANORMM_USER}" bash <<EOF
 cd ${BRIDGE_DIR}
 if [[ ! -d .venv ]]; then
     uv venv --python 3.11.8 .venv
 fi
 . .venv/bin/activate
-uv pip install -e .
+uv pip install --reinstall-package approval-bridge --reinstall-package trmm-mcp -e .
 EOF
 
 echo "==> Installing systemd unit"

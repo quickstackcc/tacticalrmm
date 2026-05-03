@@ -23,7 +23,7 @@ dev = [
 ]
 
 [tool.uv.sources]
-trmm-mcp = { path = "../trmm-mcp" }
+trmm-mcp = { path = "../trmm-mcp", editable = true }
 
 [build-system]
 requires = ["hatchling"]
