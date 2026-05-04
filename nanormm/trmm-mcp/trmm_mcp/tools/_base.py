@@ -103,6 +103,23 @@ class Dispatcher:
         self._inject = inject_client
         self._schemas = schemas if schemas is not None else SCHEMAS
 
+    def _render_card_text(self, tool_name: str, args: dict[str, Any]) -> str:
+        """Build the markdown body the human approver sees on the Slack card.
+
+        Derived from (tool_name, args) via the per-tool ``render`` callable
+        in SCHEMAS — never from caller-supplied summary text. This is what
+        prevents a prompt-injected LLM (or a malicious MCP client) from
+        showing the human one description while executing different args.
+        """
+        entry = self._schemas.get(tool_name)
+        render = entry.get("render") if entry else None
+        if render is None:
+            raise PolicyError(
+                f"tool {tool_name} is gated but has no render() in SCHEMAS — "
+                "every human_approval tool must declare one"
+            )
+        return f"**Tool:** `{tool_name}`\n\n{render(args)}"
+
     async def dispatch(
         self,
         tool_name: str,
@@ -126,7 +143,10 @@ class Dispatcher:
             result = await fn(**args)
             return {"status": "executed", "result": result}
 
-        # human_approval
+        # human_approval — render the card text BEFORE any state mutation so a
+        # missing renderer fails loudly without leaving an orphan audit row.
+        card_text = self._render_card_text(tool_name, args)
+
         action_id = self._approvals.create(tool_name=tool_name, args=args, summary=summary)
         self._audit.record_pending(
             action_id=action_id,
@@ -144,7 +164,7 @@ class Dispatcher:
                 session_id=session_id,
                 question_id=f"nrmact-{action_id}",
                 title="Pending action",
-                question=summary or "Action requires confirmation",
+                question=card_text,
                 options=[
                     {"label": "Approve", "selectedLabel": "✅ Approved",
                      "value": "approve"},

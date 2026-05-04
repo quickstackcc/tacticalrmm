@@ -10,6 +10,7 @@ _TEST_SCHEMAS = {
     },
     "always_gated": {
         "schema": {"type": "object", "properties": {"x": {"type": "integer"}}},
+        "render": lambda args: f"do thing with x={args.get('x', '<none>')}",
     },
     "always_forbidden": {
         "schema": {"type": "object", "properties": {}},
@@ -268,7 +269,9 @@ async def test_gated_tool_with_inject_calls_inject(gated_env_with_inject):
     assert call["session_id"] == "sess-99"
     assert call["question_id"] == f"nrmact-{result['action_id']}"
     assert call["title"] == "Pending action"
-    assert call["question"] == "Multiply 5 by 10"
+    # The card text is built from (tool_name, args) by the per-tool renderer,
+    # NOT from the caller's summary. The summary stays in the audit log only.
+    assert call["question"] == "**Tool:** `always_gated`\n\ndo thing with x=5"
     assert call["options"] == [
         {"label": "Approve", "selectedLabel": "✅ Approved", "value": "approve"},
         {"label": "Reject", "selectedLabel": "❌ Rejected", "value": "reject"},
@@ -404,3 +407,131 @@ async def test_dispatch_validation_runs_before_audit_write(registry_env, audit_d
 
     # And no pending row landed in Redis either.
     assert list(dispatcher._approvals.iter_all()) == []
+
+
+@pytest.mark.asyncio
+async def test_card_text_ignores_caller_summary(gated_env_with_inject):
+    """The card the human sees comes from (tool, args) — not from the caller's
+    summary string. This is the security invariant of C3: a prompt-injected LLM
+    cannot make the card describe a benign action while args execute a hostile
+    one, because the card text is built server-side from the actual args.
+    """
+    registry, dispatcher, inject = gated_env_with_inject
+
+    @registry.register(name="always_gated")
+    async def my_gated(x: int) -> int:  # noqa: ARG001
+        return 0
+
+    deceptive_summary = "Restart Bob's printer service (totally harmless!)"
+    await dispatcher.dispatch(
+        "always_gated", {"x": 999}, summary=deceptive_summary, session_id="sess-1"
+    )
+
+    rendered = inject.calls[0]["question"]
+    # The actual args (x=999) appear in the card; the deceptive summary does not.
+    assert "x=999" in rendered
+    assert "always_gated" in rendered
+    assert "printer" not in rendered
+    assert "Bob" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_gated_tool_without_renderer_raises_before_state_mutation(
+    fake_redis, audit_dsn, tmp_path
+):
+    """A schema entry that lacks `render` for a gated tool fails dispatch
+    BEFORE creating the audit row or pending Redis entry."""
+    import psycopg
+
+    from trmm_mcp.approvals import ApprovalRegistry
+    from trmm_mcp.audit import AuditLog
+    from trmm_mcp.exceptions import PolicyError
+    from trmm_mcp.policy import Policy
+    from trmm_mcp.tools._base import Dispatcher, ToolRegistry
+
+    pol_path = tmp_path / "p.yaml"
+    pol_path.write_text(
+        "version: 1\ndefault: human_approval\ntools:\n  unrenderable: human_approval\n"
+    )
+    pol = Policy.load(pol_path)
+    schemas_no_render = {
+        "unrenderable": {
+            "schema": {"type": "object", "properties": {}},
+            # NOTE: no `render` key
+        },
+    }
+    registry = ToolRegistry()
+
+    @registry.register(name="unrenderable")
+    async def my_tool() -> int:
+        raise AssertionError("must not execute")
+
+    dispatcher = Dispatcher(
+        registry=registry,
+        policy=pol,
+        approvals=ApprovalRegistry(fake_redis, ttl_seconds=60),
+        audit=AuditLog(audit_dsn),
+        schemas=schemas_no_render,
+    )
+
+    with pytest.raises(PolicyError, match="render"):
+        await dispatcher.dispatch("unrenderable", {})
+
+    with psycopg.connect(audit_dsn) as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM nanormm_actions")
+        (count,) = cur.fetchone()
+    assert count == 0
+    assert list(dispatcher._approvals.iter_all()) == []
+
+
+@pytest.mark.asyncio
+async def test_card_text_renders_command_verbatim_for_inline_command(
+    fake_redis, audit_dsn, tmp_path
+):
+    """For run_inline_command — the tool with the highest blast radius — the
+    actual command string must appear verbatim in the card so the approver
+    sees what will run, not a summary."""
+    from trmm_mcp.approvals import ApprovalRegistry
+    from trmm_mcp.audit import AuditLog
+    from trmm_mcp.policy import Policy
+    from trmm_mcp.tools._base import Dispatcher, ToolRegistry
+    from trmm_mcp.tools._schemas import SCHEMAS
+
+    pol_path = tmp_path / "p.yaml"
+    pol_path.write_text(
+        "version: 1\ndefault: human_approval\n"
+        "tools:\n  run_inline_command: human_approval\n"
+    )
+    pol = Policy.load(pol_path)
+    inject = _StubInjectClient()
+    registry = ToolRegistry()
+
+    @registry.register(name="run_inline_command")
+    async def my_tool(agent_id: str, shell: str, command: str) -> int:  # noqa: ARG001
+        return 0
+
+    dispatcher = Dispatcher(
+        registry=registry,
+        policy=pol,
+        approvals=ApprovalRegistry(fake_redis, ttl_seconds=60),
+        audit=AuditLog(audit_dsn),
+        inject_client=inject,
+        schemas=SCHEMAS,  # use the real production schemas
+    )
+
+    await dispatcher.dispatch(
+        "run_inline_command",
+        {
+            "agent_id": "00000000-0000-0000-0000-0000000000aa",
+            "shell": "powershell",
+            "command": "shutdown /r /t 0",
+        },
+        summary="Restart Bob's printer service",
+        session_id="sess-x",
+    )
+
+    rendered = inject.calls[0]["question"]
+    assert "shutdown /r /t 0" in rendered
+    assert "powershell" in rendered
+    assert "00000000-0000-0000-0000-0000000000aa" in rendered
+    assert "printer" not in rendered  # caller summary is not rendered

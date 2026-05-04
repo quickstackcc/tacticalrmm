@@ -1,4 +1,12 @@
-"""JSON Schemas + descriptions for each tool, surfaced to MCP clients."""
+"""JSON Schemas + descriptions for each tool, surfaced to MCP clients.
+
+Gated tools (anything in policy.yaml as ``human_approval``) MUST also include
+a ``render`` callable in their entry. The renderer takes the validated args
+dict and returns the markdown text the human approver sees on the Slack card.
+This is the ONLY thing the human reads to decide approve/reject — so it must
+be derived deterministically from the actual ``args`` that will execute, not
+from any caller-supplied summary string. See Dispatcher._render_card_text().
+"""
 
 from typing import Any
 
@@ -53,6 +61,10 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             },
             "required": ["alert_id"],
         },
+        "render": lambda args: (
+            f"Acknowledge alert {args['alert_id']}"
+            + (f"\n\nNote: {args['note']}" if args.get("note") else "")
+        ),
     },
     "list_agents": {
         "description": "List TRMM agents. Filter by online status, client ID, or site ID.",
@@ -131,6 +143,10 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             },
             "required": ["agent_id", "script_id"],
         },
+        "render": lambda args: (
+            f"Run script #{args['script_id']} on agent `{args['agent_id']}`"
+            + (f"\n\nScript args: `{args['args']}`" if args.get("args") else "")
+        ),
     },
     "run_inline_command": {
         "description": (
@@ -146,6 +162,10 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             },
             "required": ["agent_id", "shell", "command"],
         },
+        "render": lambda args: (
+            f"Run {args['shell']} command on agent `{args['agent_id']}`:\n\n"
+            f"```\n{args['command']}\n```"
+        ),
     },
     "kill_process": {
         "description": "Kill a process on an agent by PID. (write)",
@@ -157,6 +177,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             },
             "required": ["agent_id", "pid"],
         },
+        "render": lambda args: f"Kill PID {args['pid']} on agent `{args['agent_id']}`",
     },
     "restart_service": {
         "description": (
@@ -171,6 +192,9 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             },
             "required": ["agent_id", "service_name"],
         },
+        "render": lambda args: (
+            f"Restart service `{args['service_name']}` on agent `{args['agent_id']}`"
+        ),
     },
     "reboot_agent": {
         "description": "Reboot an agent host. (write)",
@@ -179,5 +203,6 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "properties": {"agent_id": _AGENT_ID},
             "required": ["agent_id"],
         },
+        "render": lambda args: f"Reboot agent `{args['agent_id']}`",
     },
 }
