@@ -485,6 +485,96 @@ async def test_gated_tool_without_renderer_raises_before_state_mutation(
 
 
 @pytest.mark.asyncio
+async def test_agent_id_accepts_real_trmm_token_format(
+    fake_redis, audit_dsn, tmp_path
+):
+    """Regression: TRMM's actual agent_id format is a ~40-char base62-style
+    alphanumeric token issued by the rmmagent installer (e.g.
+    "mwMzVttIfCIjBWONqBsuiTJZEbcntWTIKhXSBWot"), NOT a UUID. The schema
+    pattern must accept this real-world shape — caught in production by a
+    Slack-driven synthetic test on 2026-05-03 when an over-tight UUID-only
+    pattern blocked every gated tool against any real agent.
+    """
+    from trmm_mcp.approvals import ApprovalRegistry
+    from trmm_mcp.audit import AuditLog
+    from trmm_mcp.policy import Policy
+    from trmm_mcp.tools._base import Dispatcher, ToolRegistry
+    from trmm_mcp.tools._schemas import SCHEMAS
+
+    pol_path = tmp_path / "p.yaml"
+    pol_path.write_text(
+        "version: 1\ndefault: human_approval\n"
+        "tools:\n  kill_process: human_approval\n"
+    )
+    pol = Policy.load(pol_path)
+    registry = ToolRegistry()
+
+    @registry.register(name="kill_process")
+    async def my_tool(agent_id: str, pid: int) -> int:  # noqa: ARG001
+        return 0
+
+    dispatcher = Dispatcher(
+        registry=registry,
+        policy=pol,
+        approvals=ApprovalRegistry(fake_redis, ttl_seconds=60),
+        audit=AuditLog(audit_dsn),
+        schemas=SCHEMAS,
+    )
+
+    # Real TRMM token format from a production agent.
+    real_trmm_id = "mwMzVttIfCIjBWONqBsuiTJZEbcntWTIKhXSBWot"
+    result = await dispatcher.dispatch("kill_process", {"agent_id": real_trmm_id, "pid": 1234})
+    assert result["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_agent_id_still_blocks_path_traversal(fake_redis, audit_dsn, tmp_path):
+    """The whole point of the agent_id pattern is to prevent traversal in the
+    URL the TRMM client builds (f"/agents/{agent_id}/..."). Loosening to
+    alphanumerics + hyphen + underscore must NOT permit '.', '/', or '\\'.
+    """
+    from trmm_mcp.approvals import ApprovalRegistry
+    from trmm_mcp.audit import AuditLog
+    from trmm_mcp.exceptions import SchemaValidationError
+    from trmm_mcp.policy import Policy
+    from trmm_mcp.tools._base import Dispatcher, ToolRegistry
+    from trmm_mcp.tools._schemas import SCHEMAS
+
+    pol_path = tmp_path / "p.yaml"
+    pol_path.write_text(
+        "version: 1\ndefault: human_approval\n"
+        "tools:\n  kill_process: human_approval\n"
+    )
+    pol = Policy.load(pol_path)
+    registry = ToolRegistry()
+
+    @registry.register(name="kill_process")
+    async def my_tool(agent_id: str, pid: int) -> int:  # noqa: ARG001
+        raise AssertionError("must not execute on a traversal payload")
+
+    dispatcher = Dispatcher(
+        registry=registry,
+        policy=pol,
+        approvals=ApprovalRegistry(fake_redis, ttl_seconds=60),
+        audit=AuditLog(audit_dsn),
+        schemas=SCHEMAS,
+    )
+
+    for hostile in [
+        "../etc/passwd",
+        "agent/../../root",
+        "agent\\..\\foo",
+        "agent.id",       # dots disallowed
+        "x" * 7,           # below 8-char minimum
+        "y" * 201,         # above 200-char maximum
+        "agent id",       # whitespace disallowed
+        "",                 # empty
+    ]:
+        with pytest.raises(SchemaValidationError, match="agent_id"):
+            await dispatcher.dispatch("kill_process", {"agent_id": hostile, "pid": 1})
+
+
+@pytest.mark.asyncio
 async def test_card_text_renders_command_verbatim_for_inline_command(
     fake_redis, audit_dsn, tmp_path
 ):
