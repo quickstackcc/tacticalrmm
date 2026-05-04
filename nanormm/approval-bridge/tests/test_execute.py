@@ -28,7 +28,7 @@ def _seed_pending(client, tool_name="kill_process", args=None) -> str:
     """Helper: create a pending action via the dispatcher (bypasses Slack)."""
     import asyncio
 
-    args = args or {"agent_id": "agent-1", "pid": 4123}
+    args = args or {"agent_id": "00000000-0000-0000-0000-000000000001", "pid": 4123}
     dispatcher = client.app.state.dispatcher
     summary = f"kill PID {args['pid']} on {args['agent_id']}"
 
@@ -66,7 +66,7 @@ def test_execute_no_auth_returns_401(client):
 
 def test_execute_happy_path(client, auth_headers, mock_trmm):
     # Mock the TRMM call that kill_process makes.
-    mock_trmm.delete("/agents/agent-1/processes/4123/").mock(
+    mock_trmm.delete("/agents/00000000-0000-0000-0000-000000000001/processes/4123/").mock(
         return_value=Response(200, json="Process with PID: 4123 was ended successfully")
     )
 
@@ -102,7 +102,7 @@ def test_execute_idempotent_on_slack_retry(client, auth_headers, mock_trmm):
     """If Slack retries the button click, the second POST returns the cached
     result — does not re-execute the TRMM call.
     """
-    mock_trmm.delete("/agents/agent-1/processes/4123/").mock(
+    mock_trmm.delete("/agents/00000000-0000-0000-0000-000000000001/processes/4123/").mock(
         return_value=Response(200, json="Process with PID: 4123 was ended successfully")
     )
 
@@ -128,7 +128,7 @@ def test_execute_idempotent_on_slack_retry(client, auth_headers, mock_trmm):
 
 
 def test_execute_records_approver_in_audit(client, auth_headers, mock_trmm, postgresql):
-    mock_trmm.delete("/agents/agent-1/processes/4123/").mock(
+    mock_trmm.delete("/agents/00000000-0000-0000-0000-000000000001/processes/4123/").mock(
         return_value=Response(200, json="Process with PID: 4123 was ended successfully")
     )
     token = _seed_pending(client)
@@ -153,7 +153,7 @@ def test_execute_trmm_error_returns_502(client, auth_headers, mock_trmm):
     """If the underlying TRMM call raises TrmmApiError, the bridge maps it to
     HTTP 502 with {error: '<class>: <msg>'}."""
     # TRMM returns an error status — TrmmClient maps non-2xx to TrmmApiError.
-    mock_trmm.delete("/agents/agent-1/processes/4123/").mock(
+    mock_trmm.delete("/agents/00000000-0000-0000-0000-000000000001/processes/4123/").mock(
         return_value=Response(500, json={"detail": "internal trmm error"})
     )
 
@@ -179,7 +179,7 @@ def test_execute_resumes_approved_status_without_re_approval(
     """
     from httpx import Response
 
-    mock_trmm.delete("/agents/agent-1/processes/4123/").mock(
+    mock_trmm.delete("/agents/00000000-0000-0000-0000-000000000001/processes/4123/").mock(
         return_value=Response(200, json="Process with PID: 4123 was ended successfully")
     )
 

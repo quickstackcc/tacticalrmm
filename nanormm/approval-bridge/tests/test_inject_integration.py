@@ -66,7 +66,7 @@ def test_mcp_kill_process_call_injects_card_and_responds(
                     "method": "tools/call",
                     "params": {
                         "name": "kill_process",
-                        "arguments": {"agent_id": "DC01", "pid": 1234},
+                        "arguments": {"agent_id": "00000000-0000-0000-0000-0000000000d1", "pid": 1234},
                     },
                 },
                 headers=h,
@@ -138,7 +138,7 @@ def test_mcp_kill_process_persists_audit_row(
                     "method": "tools/call",
                     "params": {
                         "name": "kill_process",
-                        "arguments": {"agent_id": "DC02", "pid": 5678},
+                        "arguments": {"agent_id": "00000000-0000-0000-0000-0000000000d2", "pid": 5678},
                     },
                 },
                 headers=h,
@@ -210,7 +210,7 @@ def test_mcp_kill_process_approval_row_created(bridge_settings, mock_trmm):
                     "method": "tools/call",
                     "params": {
                         "name": "kill_process",
-                        "arguments": {"agent_id": "DC03", "pid": 9999},
+                        "arguments": {"agent_id": "00000000-0000-0000-0000-0000000000d3", "pid": 9999},
                     },
                 },
                 headers=h,

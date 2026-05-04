@@ -2,7 +2,11 @@
 
 from typing import Any
 
-_AGENT_ID = {"type": "string", "description": "TRMM agent UUID"}
+_AGENT_ID = {
+    "type": "string",
+    "pattern": r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    "description": "TRMM agent UUID",
+}
 _INT_LIMIT = {"type": "integer", "minimum": 1, "maximum": 200, "default": 20}
 
 SCHEMAS: dict[str, dict[str, Any]] = {

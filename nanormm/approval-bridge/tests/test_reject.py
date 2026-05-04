@@ -32,7 +32,7 @@ def _seed_pending(client) -> str:
     result = asyncio.run(
         dispatcher.dispatch(
             "kill_process",
-            {"agent_id": "agent-1", "pid": 4123},
+            {"agent_id": "00000000-0000-0000-0000-000000000001", "pid": 4123},
             summary="kill PID 4123 on agent-1",
         )
     )
@@ -80,7 +80,7 @@ def test_reject_happy_path(client, auth_headers, postgresql):
 
 
 def test_reject_already_executed_returns_409(client, auth_headers, mock_trmm):
-    mock_trmm.delete("/agents/agent-1/processes/4123/").mock(
+    mock_trmm.delete("/agents/00000000-0000-0000-0000-000000000001/processes/4123/").mock(
         return_value=Response(200, json="Process with PID: 4123 was ended successfully")
     )
     token = _seed_pending(client)

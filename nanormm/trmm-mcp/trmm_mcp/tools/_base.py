@@ -29,10 +29,39 @@ from typing import Any
 
 from ..approvals import ApprovalRegistry
 from ..audit import AuditLog
-from ..exceptions import ApprovalError, PolicyError
+from ..exceptions import ApprovalError, PolicyError, SchemaValidationError
 from ..policy import Authority, Policy
+from ._schemas import SCHEMAS
 
 ToolFn = Callable[..., Awaitable[Any]]
+
+
+def _validate_args(
+    tool_name: str,
+    args: dict[str, Any],
+    schemas: dict[str, dict[str, Any]],
+) -> None:
+    """Enforce the tool's declared JSON Schema with strict (closed) mode.
+
+    Raises SchemaValidationError on missing schema, unknown fields, or any
+    type/pattern/required violation. Intentionally does not echo the offending
+    value back into the error message — only the field path and validator name —
+    because the message lands in the LLM context and may be attacker-influenced.
+    """
+    from jsonschema import Draft202012Validator, ValidationError
+
+    entry = schemas.get(tool_name)
+    if entry is None:
+        raise SchemaValidationError(f"no schema registered for tool {tool_name}")
+
+    schema = {**entry["schema"], "additionalProperties": False}
+    try:
+        Draft202012Validator(schema).validate(args)
+    except ValidationError as exc:
+        field = ".".join(str(p) for p in exc.absolute_path) or "<root>"
+        raise SchemaValidationError(
+            f"args for {tool_name} failed schema at '{field}': {exc.validator}"
+        ) from None
 
 
 
@@ -65,12 +94,14 @@ class Dispatcher:
         approvals: ApprovalRegistry,
         audit: AuditLog,
         inject_client: Any | None = None,
+        schemas: dict[str, dict[str, Any]] | None = None,
     ):
         self._registry = registry
         self._policy = policy
         self._approvals = approvals
         self._audit = audit
         self._inject = inject_client
+        self._schemas = schemas if schemas is not None else SCHEMAS
 
     async def dispatch(
         self,
@@ -83,6 +114,8 @@ class Dispatcher:
         fn = self._registry.get(tool_name)
         if fn is None:
             raise PolicyError(f"unknown tool: {tool_name}")
+
+        _validate_args(tool_name, args, self._schemas)
 
         authority = self._policy.authority(tool_name)
 

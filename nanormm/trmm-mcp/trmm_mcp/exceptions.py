@@ -21,6 +21,10 @@ class PolicyError(NanormmError):
     """Policy file missing, invalid, or unknown tool."""
 
 
+class SchemaValidationError(PolicyError):
+    """Tool args failed JSON Schema validation."""
+
+
 class ApprovalError(NanormmError):
     """Approval registry error (Redis unreachable, bad state, expired)."""
 
