@@ -22,7 +22,7 @@ The 80% pile. Half a day of work, ~$50 in YubiKeys, no hardware purchases otherw
   - [ ] Slack workspace (admin account)
   - [ ] AmidaWare sponsorship account
   - [ ] Password manager (Bitwarden / 1Password) as second factor on the vault itself
-  - [ ] TRMM admin user (TRMM uses django-two-factor-auth → TOTP. Use Yubico Authenticator app on YubiKey for OATH-TOTP, *not* phone-based TOTP)
+  - [ ] TRMM admin user (TRMM 2FA is bare `pyotp` TOTP — no WebAuthn / FIDO2 / U2F. Provision the TOTP seed into the YubiKey via the Yubico Authenticator app, *not* a phone-based authenticator. This gives seed protection but **not** phishing resistance — see the QSRMM Admin browser profile below for the phishing-side mitigation.)
 - [ ] Disable SMS as a fallback factor everywhere it's offered. SMS gets SIM-swapped.
 - [ ] Disable TOTP-only fallback on accounts that support hardware-only mode (GitHub does; Google does via Advanced Protection).
 - [ ] Verify: try logging into each account from a private window — must require physical key tap.
