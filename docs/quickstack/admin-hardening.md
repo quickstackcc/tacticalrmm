@@ -126,6 +126,10 @@ These are behavioral, not one-time. Worth writing into a personal weekly/monthly
 
 Don't take customer money without these in place. Patterns set with customer #1 are hard to renegotiate by customer #4.
 
+> **Prerequisite:** Phase 1 hardware-MFA + browser separation + SSH key separation must be complete before any Phase 3 item is sufficient on its own. The risk model in the brainstorm puts admin-credential pivot from the daily driver as the dominant compromise vector — Phase 3 controls (insurance, MSA, tripwires, log streaming) constrain blast radius *after* a compromise; Phase 1 reduces the probability of one. Both are needed.
+>
+> Also from Phase 2 and binding here: TRMM must be pinned to a **stable upstream release tag** (not `develop`) before any customer agent install. Snapshot the VM before the pin-and-redeploy.
+
 ### Legal & insurance
 
 - [ ] Bind E&O / cyber liability insurance. ~$1–2K/yr for a small MSP. Coverage should include breach response (forensics + lawyer + customer notification).
