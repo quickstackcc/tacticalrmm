@@ -22,7 +22,7 @@ The 80% pile. Half a day of work, ~$50 in YubiKeys, no hardware purchases otherw
   - [ ] Slack workspace (admin account)
   - [ ] AmidaWare sponsorship account
   - [ ] Password manager (Bitwarden / 1Password) as second factor on the vault itself
-  - [ ] TRMM admin user (TRMM 2FA is bare `pyotp` TOTP — no WebAuthn / FIDO2 / U2F. Provision the TOTP seed into the YubiKey via the Yubico Authenticator app, *not* a phone-based authenticator. This gives seed protection but **not** phishing resistance — see the QSRMM Admin browser profile below for the phishing-side mitigation.)
+  - [x] TRMM admin user — **superseded by SSO via Google Workspace**, see "TRMM SSO + break-glass model" below. Native TRMM 2FA is bare `pyotp` TOTP (no WebAuthn / FIDO2 / U2F) and only protects the local `qs-admin` break-glass account. Phishing resistance now comes from the Google account's hardware key, enforced upstream of TRMM via Workspace SSO.
 - [ ] Disable SMS as a fallback factor everywhere it's offered. SMS gets SIM-swapped.
 - [ ] Disable TOTP-only fallback on accounts that support hardware-only mode (GitHub does; Google does via Advanced Protection).
 - [ ] Verify: try logging into each account from a private window — must require physical key tap.
@@ -76,6 +76,27 @@ The single biggest residual risk vector. Inventory and prune.
 - [ ] Confirm hardware-backed TOTP enforced on all TRMM admin accounts.
 - [ ] Audit existing Knox tokens (`SELECT * FROM knox_authtoken;` via the Django admin or psql). Revoke any orphaned ones.
 - [ ] MeshCentral admin: hardware-MFA-backed, separate from TRMM admin password.
+
+### TRMM SSO + break-glass model (configured 2026-05-07)
+
+Phishing-resistant TRMM admin via Google Workspace SSO. Inherits hardware-key enforcement from the Google account, side-steps TRMM's TOTP-only 2FA limitation.
+
+**Caveat — fork dependency:** Upstream `tacticalrmm-web` v0.101.59 ships SSO that is half-deleted (commit `75a9ef88` removed the post-callback Vue route + auth-store glue without re-implementing it; ~14 months in upstream develop). We run a forked frontend at `quickstack-cc/tacticalrmm-web` branch `qs/sso-callback-fix` (commit `35ffd33`). When upstream restores the missing wiring or merges our patch, drop the fork. See `docs/superpowers/handoffs/2026-05-07-sso-cutover.md` for the full diagnostic record.
+
+**Caveat — deploy procedure:** the VM hosts a runtime-config file at `/var/www/rmm/dist/env-config.js` that the fork's `public/` does not ship. Any `rsync` deploy of `dist/` MUST `--exclude=env-config.js`, or `window._env_` goes undefined and the entire frontend breaks with a confusing `TypeError`. Memory note `feedback_qsrmm_trmm_web_deploy.md` carries the rule.
+
+**Identity model in production (verified 2026-05-07):**
+
+| User | Email | Django superuser | TRMM role | SocialAccount | Use |
+|---|---|---|---|---|---|
+| `qs-admin` | `jim@quickstack.tech` | True | — | (none) | **Break-glass only**, local username/password + TOTP |
+| `jim` | `jim@quickstack.cc` | False | `Administrator` (role-level superuser) | google `113485…` | Daily admin via Google SSO |
+
+- [x] SSO enabled (`core_settings.sso_enabled=True`)
+- [x] Break-glass user has no SocialAccount link (Google compromise can't escalate via the local superuser)
+- [x] Daily SSO user has no Django `is_superuser` (limits Django-admin blast radius if SSO identity is compromised; full TRMM perms still granted via Role)
+- [ ] **Decide and act:** keep `block_local_user_logon=False` (current — break-glass works at any time, but local logins also still work) vs. `True` (force SSO, break-glass requires temporary toggle via VM shell). Recommendation: leave at `False` until the YubiKey on the Google account is enrolled and tested, then flip to `True`.
+- [ ] Once flipped to `True`, document the recovery procedure: `manage.py shell -c "from core.utils import get_core_settings; cs=get_core_settings(); cs.block_local_user_logon=False; cs.save()"` (or via Django admin if Django superuser is reachable). Print this and store offline.
 
 ---
 

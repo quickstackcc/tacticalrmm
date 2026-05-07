@@ -1,7 +1,50 @@
-# 2026-05-07 — SSO cutover: stuck on Node-version build regression
+# 2026-05-07 — SSO cutover: RESOLVED
 
 **Date:** 2026-05-07
-**Status:** Halted mid-cutover. Diagnosis complete, patch ready, deploy blocked on build-environment regression. SSO disabled in TRMM, all production state restored to pre-session.
+**Status (final, 2026-05-07 evening):** ✅ **Resolved.** SSO live via the patched fork. Break-glass model in place (qs-admin retains Django-superuser as local-only fallback; daily admin is the new SSO-created `jim` user with TRMM `Administrator` role).
+
+**Status (mid-day, halted):** Halted mid-cutover. Diagnosis complete, patch ready, deploy blocked on build-environment regression. SSO disabled in TRMM, all production state restored to pre-session.
+
+---
+
+## RESOLUTION (2026-05-07 evening session)
+
+The Node-version hypothesis was **wrong**. Rebuilding the patched fork under Node 20 in a `node:20-bookworm` docker container produced **byte-identical chunk hashes** to the Node 24 build (entry chunk `ddb075c4.js`, etc.). Content hashes are deterministic — identical hashes mean identical output. So the build environment was never the variable.
+
+**Actual root cause:** the deploy step `sudo rsync -a --delete /tmp/qs-dist-new/ /var/www/rmm/dist/` deleted `/var/www/rmm/dist/env-config.js`, a VM-managed runtime config (contents: `window._env_ = {PROD_URL: "https://api.quickstack.cc"}`) referenced by `index.html` via `<script src=/env-config.js>`. The fork's `public/` directory does not ship one. With `env-config.js` 404, `window._env_` was undefined, `boot/axios.js:getBaseUrl()` threw on `.PROD_URL`, axios converted the synchronous throw into a rejection with no `error.response`, the response interceptor's bottom branch (`error.response.status !== 423`) read `.status` on undefined and threw the visible `TypeError: Cannot read properties of undefined (reading 'status')`. LoginView crashed on mount, no SSO button.
+
+**Fix:** add `--exclude=env-config.js` to the rsync. One-line change. Re-deployed cleanly.
+
+**Break-glass model setup:** SSO initially auto-linked Google → existing `qs-admin` user because the previous day's session was logged in via username/password when allauth completed the OIDC handshake — allauth's default behavior is to attach the SocialAccount to the current logged-in user. Resulting state showed `User.email='jim@quickstack.tech'` (install-time value) for SSO sessions even though Google identity was `jim@quickstack.cc`. Severed by deleting the SocialAccount row, logging out, and signing back in via Google with no active session — allauth fell into the signup path and created user id=4 (`username='jim'`, `email='jim@quickstack.cc'`, `role=Administrator`). qs-admin retained as Django-superuser break-glass with no SocialAccount link.
+
+**Final post-deploy state (verified 2026-05-07 ~19:18 UTC):**
+
+| Resource | State |
+|---|---|
+| `/var/www/rmm/dist/` | Patched build (entry `ddb075c4.js`); `env-config.js` preserved |
+| `core_settings.sso_enabled` | True |
+| `core_settings.block_local_user_logon` | False (intentional — preserves break-glass path) |
+| User id=1 `qs-admin` | `email=jim@quickstack.tech`, Django `is_superuser=True`, no SocialAccount link, **break-glass** |
+| User id=4 `jim` | `email=jim@quickstack.cc`, Django `is_superuser=False`, `role=Administrator` (TRMM-level superuser), SSO daily admin |
+| SocialAccount id=2 | user_id=4, provider=google, uid=113485770787885316821 |
+| EmailAddress | jim@quickstack.cc primary+verified for user_id=4 |
+| VM backups | `dist.pre-sso-patch-20260507-1631` (yesterday's failed attempt), `dist.pre-sso-patch-20260507-1253` (today's pre-success) |
+| GCE snapshot `rmm-pre-sso-20260507-0947` | Retained |
+| Fork branch `qs/sso-callback-fix` | `35ffd33` — unchanged from yesterday; the patch was correct all along |
+
+**Memory updates committed to `~/.claude/projects/.../memory/`:**
+- `project_qsrmm_trmm_sso_broken.md` — rewritten to reflect resolved state
+- `feedback_qsrmm_trmm_web_deploy.md` — new; captures the `--exclude=env-config.js` rule
+
+**Open loose ends (not blocking):**
+- Pin a `.nvmrc` on the fork (Node 20 or 24; both work)
+- Bake `--exclude=env-config.js` into a deploy script in `nanormm/deploy/` (or a make target on the fork)
+- File the SSO route patch as an upstream PR to `amidaware/tacticalrmm-web` referencing commit `75a9ef88` (Path C from the original plan)
+- Prune the older `dist.pre-sso-patch-20260507-1631` backup once SSO is proven stable for ~1 week
+
+---
+
+## Original mid-day handoff (kept for diagnostic record)
 
 **Companion docs:**
 - [Admin hardening checklist](../../quickstack/admin-hardening.md) — Phase 1 prerequisites for TMGW agent rollout (this session was the SSO subtask of Phase 1)
