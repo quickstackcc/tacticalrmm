@@ -15,17 +15,43 @@ The 80% pile. Half a day of work, ~$50 in YubiKeys, no hardware purchases otherw
 
 ### Hardware MFA
 
-- [ ] Buy two YubiKeys (primary + backup, store backup offsite or in a fire safe). YubiKey 5 NFC or 5C NFC depending on your ports.
+- [ ] Buy **2× YubiKey 5C NFC** (~$55 each, ~$110 total) — decided 2026-06-24. USB-C matches the Zorin daily driver; NFC covers phone taps. Primary on keyring/desk, backup in a fire safe or offsite. **Buy direct from yubico.com or Amazon "sold by / ships from Yubico"** — a third-party marketplace seller is a supply-chain risk on a root-of-trust device (exactly the threat Phase 1 guards against).
 - [ ] Enroll both keys on:
-  - [ ] Google account (covers Gmail, GCP console, Workspace)
+  - [ ] Google account (covers Gmail, GCP console, Workspace) — **the load-bearing one**; TRMM phishing resistance is inherited from here via SSO
   - [ ] GitHub account + `quickstack-cc` org enforcement
   - [ ] Slack workspace (admin account)
   - [ ] AmidaWare sponsorship account
-  - [ ] Password manager (Bitwarden / 1Password) as second factor on the vault itself
+  - N/A **Password manager** — Quick Stack runs no vault (Bitwarden / 1Password not adopted; see memory `qsrmm-has-no-password-manager`). Recovery story instead = the **backup YubiKey** (offsite) + **printed Google backup codes** stored offline with it. Do not stash recovery codes or passphrases in a vault that doesn't exist.
   - [x] TRMM admin user — **superseded by SSO via Google Workspace**, see "TRMM SSO + break-glass model" below. Native TRMM 2FA is bare `pyotp` TOTP (no WebAuthn / FIDO2 / U2F) and only protects the local `qs-admin` break-glass account. Phishing resistance now comes from the Google account's hardware key, enforced upstream of TRMM via Workspace SSO.
 - [ ] Disable SMS as a fallback factor everywhere it's offered. SMS gets SIM-swapped.
-- [ ] Disable TOTP-only fallback on accounts that support hardware-only mode (GitHub does; Google does via Advanced Protection).
+- [ ] Disable TOTP-only fallback on accounts that support hardware-only mode. For the Google identity, do this via **Workspace admin enforcement** (security-key-only for the OU), *not* consumer Advanced Protection — cleaner for a Workspace identity and can't be silently downgraded. See the runbook below. GitHub supports hardware-only directly.
 - [ ] Verify: try logging into each account from a private window — must require physical key tap.
+
+#### Enrollment runbook — lockout-safe sequence (decided 2026-06-24)
+
+**Decision record:** hardware = 2× YubiKey 5C NFC; enforcement = **Workspace-enforced security-key-only** (not Google Advanced Protection). **Why the order matters:** SSO is already live (since 2026-05-07), but until a hardware key sits on `jim@quickstack.cc` the "phishing-resistant TRMM admin" claim is only plumbing — the SSO chain is only as strong as the Google account's weakest factor (currently password + TOTP).
+
+Cardinal rule: **enroll both keys + print recovery codes BEFORE enforcing anything**, and keep the TRMM break-glass (`qs-admin` local + TOTP, `block_local_user_logon=False`) open the whole time.
+
+**A — Enroll (do NOT enforce yet)**
+1. Google `jim@quickstack.cc` → Security → 2-Step Verification → add both keys, named `qsrmm-primary` / `qsrmm-backup`.
+2. Generate Google backup codes → print, store offline with the backup key.
+3. Smoke test: private window → Google sign-in → must tap.
+
+**B — Enforce (Workspace admin console)**
+4. Admin → Security → Authentication → 2-Step Verification → Enforcement **On**, allowed methods = **Only security key** for the OU (the whole org — it's just Jim).
+5. Disable SMS recovery/2SV; confirm no TOTP fallback remains.
+6. Re-test in a fresh private window. NB: this gates *every* Google login — Gmail, GCP console, `gcloud auth login` all demand a tap. Service-account automation is unaffected (SA keys, not your identity).
+
+**C — Realize the TRMM benefit + flip force-SSO**
+7. Fresh private window → `rmm.quickstack.cc` → Sign in with Google → tap → Dashboard. **This is the moment phishing resistance becomes real.**
+8. Print the recovery toggle (the `block_local_user_logon=False` shell command in "TRMM SSO + break-glass model" below) and store it offline.
+9. Flip `core_settings.block_local_user_logon=True`. `qs-admin` local + TOTP stays as the sealed break-glass.
+
+**D — Spread to the other accounts**
+10. GitHub: enroll both keys → then enable org-level 2FA-required on `quickstack-cc` **only after** confirming no human member / machine-user gets locked out (GitHub App bots are exempt, so the nanoclaw/Slack app side is fine — do a 1-minute member check first).
+11. Slack workspace admin: enroll both keys.
+12. AmidaWare sponsorship = GitHub Sponsors, so step 10's key covers it — confirm there's no separate password login.
 
 ### Browser separation
 
@@ -43,7 +69,7 @@ The 80% pile. Half a day of work, ~$50 in YubiKeys, no hardware purchases otherw
   ```bash
   ssh-keygen -t ed25519 -f ~/.ssh/qsrmm_ed25519 -C "qsrmm-admin-$(hostname)"
   ```
-  Set a strong passphrase (≥ 6 random words, store in password manager).
+  Set a strong passphrase (≥ 6 random words) and **store it offline** — written down with the Google recovery codes and backup YubiKey. (No password-manager vault exists; see Hardware MFA above.)
 - [ ] Configure ssh-agent to forget this key after 4 hours: `ssh-add -t 14400 ~/.ssh/qsrmm_ed25519`.
 - [ ] Add only this key to the QSRMM VM's `~/.ssh/authorized_keys`. Remove any other keys that crept in during install.
 - [ ] Add a `~/.ssh/config` block scoping the key to the QSRMM VM only — other hosts must not be able to use it.
