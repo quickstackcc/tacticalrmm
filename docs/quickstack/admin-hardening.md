@@ -15,23 +15,28 @@ The 80% pile. Half a day of work, ~$50 in YubiKeys, no hardware purchases otherw
 
 ### Hardware MFA
 
-- [ ] Buy **2× YubiKey 5C NFC** (~$55 each, ~$110 total) — decided 2026-06-24. USB-C matches the Zorin daily driver; NFC covers phone taps. Primary on keyring/desk, backup in a fire safe or offsite. **Buy direct from yubico.com or Amazon "sold by / ships from Yubico"** — a third-party marketplace seller is a supply-chain risk on a root-of-trust device (exactly the threat Phase 1 guards against).
-- [ ] Enroll both keys on:
-  - [ ] Google account (covers Gmail, GCP console, Workspace) — **the load-bearing one**; TRMM phishing resistance is inherited from here via SSO
-  - [ ] GitHub account + `quickstack-cc` org enforcement
-  - [ ] Slack workspace (admin account)
-  - [ ] AmidaWare sponsorship account
+- [x] Buy YubiKeys — decided 2026-06-24 (2× 5C NFC), **arrived 2026-07-15 as 3 keys: 5C Nano, 5C NFC, 5 NFC (USB-A)**. Placement: Nano stays in the Zorin daily driver's USB-C port; 5 NFC (USB-A) on keyring (NFC covers phone taps, USB-A covers any loaner machine); 5C NFC offsite/fire-safe backup. **Buy direct from yubico.com or Amazon "sold by / ships from Yubico"** — a third-party marketplace seller is a supply-chain risk on a root-of-trust device (exactly the threat Phase 1 guards against).
+- [x] Enroll the keys on (all done 2026-07-15 except the PayPal follow-up below):
+  - [x] Google account (covers Gmail, GCP console, Workspace) — **the load-bearing one**; TRMM phishing resistance is inherited from here via SSO. *Done 2026-07-15: all 3 keys enrolled (`qsrmm-nano`/`qsrmm-keyring`/`qsrmm-backup`), backup codes printed to offline bundle, all 3 keys tap-tested from incognito.*
+  - [x] GitHub account + `quickstack-cc` org enforcement — *done 2026-07-15: all 3 keys registered as security keys (TOTP app stays as required primary — see corrected note below), recovery codes printed to bundle, tap-tested in private window, org `two_factor_requirement_enabled=true` (API-verified; sole member, no outside collaborators).*
+  - [x] Slack workspace (admin account) — **corrected 2026-07-15: Slack has no native security-key/WebAuthn support (TOTP/SMS only)**. Phishing resistance comes from signing in with Google (inherits the hardware keys, same pattern as TRMM SSO). *Verified 2026-07-15: no standalone Slack password on the account — Google sign-in is the only door.*
+  - [x] AmidaWare sponsorship account — **corrected 2026-07-15: sponsorship is paid via PayPal, not GitHub Sponsors** (doc previously assumed Sponsors). No separate AmidaWare portal password. Compromise impact = sponsorship lapse (EE features / signed installers), not RMM access.
+  - [ ] PayPal (sponsorship billing) — supports passkeys natively; enroll the keys when convenient. Until then it rides on password + its own 2FA, with account recovery chaining to the key-gated Gmail.
   - N/A **Password manager** — Quick Stack runs no vault (Bitwarden / 1Password not adopted; see memory `qsrmm-has-no-password-manager`). Recovery story instead = the **backup YubiKey** (offsite) + **printed Google backup codes** stored offline with it. Do not stash recovery codes or passphrases in a vault that doesn't exist.
   - [x] TRMM admin user — **superseded by SSO via Google Workspace**, see "TRMM SSO + break-glass model" below. Native TRMM 2FA is bare `pyotp` TOTP (no WebAuthn / FIDO2 / U2F) and only protects the local `qs-admin` break-glass account. Phishing resistance now comes from the Google account's hardware key, enforced upstream of TRMM via Workspace SSO.
-- [ ] Disable SMS as a fallback factor everywhere it's offered. SMS gets SIM-swapped.
-- [ ] Disable TOTP-only fallback on accounts that support hardware-only mode. For the Google identity, do this via **Workspace admin enforcement** (security-key-only for the OU), *not* consumer Advanced Protection — cleaner for a Workspace identity and can't be silently downgraded. See the runbook below. GitHub supports hardware-only directly.
-- [ ] Verify: try logging into each account from a private window — must require physical key tap.
+- [x] Disable SMS as a fallback factor everywhere it's offered. SMS gets SIM-swapped. *Google: verified 2026-07-15 — no recovery phone was ever set. Remaining factors: 3 YubiKeys + Pixel device-bound passkey (fingerprint-gated, same phishing-resistant class) + printed backup codes.*
+- [x] Disable TOTP-only fallback on accounts that support hardware-only mode. *Google: done 2026-07-15 via Workspace security-key-only enforcement. GitHub: not possible — see correction below.* For the Google identity, do this via **Workspace admin enforcement** (security-key-only for the OU), *not* consumer Advanced Protection — cleaner for a Workspace identity and can't be silently downgraded. See the runbook below. **Corrected 2026-07-15:** GitHub does *not* support hardware-only 2FA — TOTP or SMS must remain as the primary method; security keys/passkeys are supplementary (per GitHub docs). Residual: a password+TOTP phishable path stays open by design; keys + passkey make the default sign-in phishing-resistant, and the TOTP secret sits in Google Authenticator behind the now key-gated Google account.
+- [x] Verify: try logging into each account from a private window — must require physical key tap. *Done 2026-07-15: Google (all 3 keys, under enforcement, audit-log-confirmed), GitHub (tap-tested), TRMM (SSO → tap → dashboard). Slack inherits the Google check.*
 
 #### Enrollment runbook — lockout-safe sequence (decided 2026-06-24)
 
 **Decision record:** hardware = 2× YubiKey 5C NFC; enforcement = **Workspace-enforced security-key-only** (not Google Advanced Protection). **Why the order matters:** SSO is already live (since 2026-05-07), but until a hardware key sits on `jim@quickstack.cc` the "phishing-resistant TRMM admin" claim is only plumbing — the SSO chain is only as strong as the Google account's weakest factor (currently password + TOTP).
 
 Cardinal rule: **enroll both keys + print recovery codes BEFORE enforcing anything**, and keep the TRMM break-glass (`qs-admin` local + TOTP, `block_local_user_logon=False`) open the whole time.
+
+**Status 2026-07-15: steps A–C complete.** All 3 keys enrolled and tap-tested under Workspace security-key-only enforcement (audit log shows `Challenge type: Security key, Is second factor: True`); backup codes + recovery toggle printed to offline bundle; SSO → tap → TRMM dashboard verified; `block_local_user_logon` flipped to `True`. **Step D also complete same day:** GitHub keys + org 2FA enforced (API-verified), Slack confirmed Google-sign-in-only, sponsorship confirmed PayPal (keys-on-PayPal left as the one follow-up). Runbook done.
+
+**Precondition verified 2026-07-15:** `qs-admin` break-glass login tested end-to-end (local password + TOTP, private window) and the password is written into the offline bundle. VM state confirmed same day: `sso_enabled=True`, `block_local_user_logon=False`. Note the VM has no `tactical` service user — TRMM runs as `jim_quickstack_cc`, so `manage.py` commands run plainly from that account with `/rmm/api/env/bin/python /rmm/api/tacticalrmm/manage.py …` (no `sudo -u tactical`).
 
 **A — Enroll (do NOT enforce yet)**
 1. Google `jim@quickstack.cc` → Security → 2-Step Verification → add both keys, named `qsrmm-primary` / `qsrmm-backup`.
@@ -46,12 +51,12 @@ Cardinal rule: **enroll both keys + print recovery codes BEFORE enforcing anythi
 **C — Realize the TRMM benefit + flip force-SSO**
 7. Fresh private window → `rmm.quickstack.cc` → Sign in with Google → tap → Dashboard. **This is the moment phishing resistance becomes real.**
 8. Print the recovery toggle (the `block_local_user_logon=False` shell command in "TRMM SSO + break-glass model" below) and store it offline.
-9. Flip `core_settings.block_local_user_logon=True`. `qs-admin` local + TOTP stays as the sealed break-glass.
+9. Flip `core_settings.block_local_user_logon=True`. `qs-admin` local + TOTP remains usable at any time — Django superusers are exempt from the block (see corrected note in "TRMM SSO + break-glass model"); the flag removes local login for everyone else and from the UI.
 
 **D — Spread to the other accounts**
 10. GitHub: enroll both keys → then enable org-level 2FA-required on `quickstack-cc` **only after** confirming no human member / machine-user gets locked out (GitHub App bots are exempt, so the nanoclaw/Slack app side is fine — do a 1-minute member check first).
-11. Slack workspace admin: enroll both keys.
-12. AmidaWare sponsorship = GitHub Sponsors, so step 10's key covers it — confirm there's no separate password login.
+11. Slack workspace admin: use **Sign in with Google** (Slack has no native security-key support — corrected 2026-07-15). Confirm no standalone Slack password remains on the account.
+12. AmidaWare sponsorship — **corrected 2026-07-15: paid via PayPal, not GitHub Sponsors.** No separate AmidaWare portal login. Follow-up: enroll the keys as PayPal passkeys (supported natively).
 
 ### Browser separation
 
@@ -121,8 +126,9 @@ Phishing-resistant TRMM admin via Google Workspace SSO. Inherits hardware-key en
 - [x] SSO enabled (`core_settings.sso_enabled=True`)
 - [x] Break-glass user has no SocialAccount link (Google compromise can't escalate via the local superuser)
 - [x] Daily SSO user has no Django `is_superuser` (limits Django-admin blast radius if SSO identity is compromised; full TRMM perms still granted via Role)
-- [ ] **Decide and act:** keep `block_local_user_logon=False` (current — break-glass works at any time, but local logins also still work) vs. `True` (force SSO, break-glass requires temporary toggle via VM shell). Recommendation: leave at `False` until the YubiKey on the Google account is enrolled and tested, then flip to `True`.
-- [ ] Once flipped to `True`, document the recovery procedure: `manage.py shell -c "from core.utils import get_core_settings; cs=get_core_settings(); cs.block_local_user_logon=False; cs.save()"` (or via Django admin if Django superuser is reachable). Print this and store offline.
+- [x] **Decide and act:** flipped to `block_local_user_logon=True` on 2026-07-15, after YubiKey enrollment + Workspace security-key-only enforcement + SSO tap-to-dashboard test all verified. Recovery toggle printed to offline bundle first.
+- **Corrected 2026-07-15 (code-verified):** the flag does **not** seal out `qs-admin`. Both login endpoints exempt Django superusers (`accounts/views.py:79` and `:108` — `if not user.is_superuser and core_settings.block_local_user_logon`), so `qs-admin` + password + TOTP keeps working at the API even with the flag `True`. What the flag does: blocks *non-superuser* local logins and hides the local login form from the UI. The VM-shell toggle below is the convenience lever to get the login *form* back in a browser, not the only recovery path.
+- [ ] Once flipped to `True`, keep the recovery toggle printed offline (full VM form, since there is no `tactical` user): `/rmm/api/env/bin/python /rmm/api/tacticalrmm/manage.py shell -c "from core.utils import get_core_settings; cs=get_core_settings(); cs.block_local_user_logon=False; cs.save()"`. `CoreSettings.save()` busts the settings cache (`core/models.py:127`), so it takes effect immediately, no service restart.
 
 ---
 
