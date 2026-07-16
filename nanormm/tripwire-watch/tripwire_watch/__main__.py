@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 import psycopg
 
-from . import __version__, db, rules, slack
+from . import __version__, db, export, rules, slack
 from . import state as state_mod
 from .settings import TripwireSettings
 
@@ -71,6 +71,7 @@ def main() -> int:
             rows = db.fetch_new_rows(conn, st["last_id"])
             if rows:
                 processed += len(rows)
+                export.export_rows(cfg.audit_export_path, rows)
                 alerts = rules.evaluate(rows, st, now, cfg)
                 for alert in rules.apply_dedupe(alerts, st, now, cfg):
                     log.warning("ALERT %s: %s", alert.rule, alert.title)

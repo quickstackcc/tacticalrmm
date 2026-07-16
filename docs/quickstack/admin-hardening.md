@@ -209,9 +209,9 @@ Wire these up before customer #1. Each one is cheap to implement and would catch
 
 ### Logging
 
-- [ ] Stream Django audit logs, nginx access logs, MeshCentral logs, and sshd auth logs to GCS via Cloud Logging.
-- [ ] GCS bucket has retention lock / object retention configured (memory says immutable backups already exist — confirm log sink uses same posture).
-- [ ] Verify: deleting a log on the VM does not delete it from GCS.
+- [x] Stream Django audit logs, nginx access logs, MeshCentral logs, and sshd auth logs to GCS via Cloud Logging. *Done 2026-07-16: Ops Agent installed (VM SA granted `logging.logWriter` + `monitoring.metricWriter`); receivers = sshd auth.log, syslog (captures all systemd services incl. meshcentral/tripwire-watch stdout), all three nginx access logs (default + frontend + API vhost paths — the API vhost logs into TRMM's private log dir, not /var/log/nginx), nginx error logs, TRMM django/trmm debug logs, mesh errors file, and `trmm_audit_export` — a JSONL export of every `logs_auditlog` row written by tripwire-watch (`TRIPWIRE_AUDIT_EXPORT_PATH`), since the Django audit trail lives in Postgres, not a file. Deployed config mirrored at `nanormm/tripwire-watch/opsagent/config.yaml`. All streams verified arriving in Cloud Logging.*
+- [x] GCS bucket has retention lock / object retention configured. *Done 2026-07-16: sink `qsrmm-logs-to-gcs` → `gs://qsrmm-logs`, uniform bucket-level access, **unlocked 400-day retention policy** (objects undeletable/unoverwritable for 400d unless an org admin first removes the policy — deliberately stronger than qsrmm-backups' IAM-only posture; not hard-locked to avoid irreversibility).*
+- [ ] Verify: deleting a log on the VM does not delete it from GCS. *Pending: GCS sink delivers in hourly batches; verify first objects land + deletion attempt is rejected, ~1h after 2026-07-16 16:00 UTC.*
 
 ### Recovery drill
 

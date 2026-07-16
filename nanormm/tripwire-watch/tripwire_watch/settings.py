@@ -34,3 +34,8 @@ class TripwireSettings(BaseSettings):
     dedupe_seconds: int = Field(default=600, alias="TRIPWIRE_DEDUPE_SECONDS")
     heartbeat_hours: int = Field(default=24, alias="TRIPWIRE_HEARTBEAT_HOURS")
     known_ip_bootstrap_days: int = Field(default=90, alias="TRIPWIRE_KNOWN_IP_BOOTSTRAP_DAYS")
+
+    # When set, every consumed audit row is appended as a JSON line to this
+    # file (tailed by the Ops Agent -> Cloud Logging -> GCS for immutable
+    # off-VM retention). Empty string disables the export.
+    audit_export_path: str = Field(default="", alias="TRIPWIRE_AUDIT_EXPORT_PATH")

@@ -15,7 +15,7 @@ StateDirectory=nanormm
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/var/lib/nanormm
+ReadWritePaths=/var/lib/nanormm /var/log/nanormm
 
 [Install]
 WantedBy=multi-user.target
