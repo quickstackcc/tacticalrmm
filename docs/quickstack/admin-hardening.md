@@ -95,13 +95,14 @@ The single biggest residual risk vector. Inventory and prune.
 - [ ] Audit TRMM admin user count: only Jim should have superuser. Demote or delete any others.
 - [ ] Confirm hardware-backed TOTP enforced on all TRMM admin accounts.
 - [ ] Audit existing Knox tokens (`SELECT * FROM knox_authtoken;` via the Django admin or psql). Revoke any orphaned ones.
+- **Native terminal (v1.5.1+): deliberately enabled** — decision 2026-07-16: kept on as it strengthens the AI-ops position (agent shell access without MeshCentral dependency). Gated by the dedicated *Role → Agents → Use Terminal* permission (auto-granted to roles that had "Use MeshCentral"). Revisit permission grants when any second human user is added.
 - [x] MeshCentral admin: hardware-MFA-backed, separate from TRMM admin password. *Done 2026-07-15: site-admin `zuxpotqj` password reset (→ offline bundle), all 3 YubiKeys enrolled via Mesh's native WebAuthn + backup codes printed, and `force2factor: true` set on the domain (config backup at `meshcentral-data/config.json.bak-20260715`) — no password-only login path remains on Mesh, including TRMM's auto-provisioned users. TRMM Take Control verified working after (login tokens bypass the login page, so 2FA doesn't touch the integration). Existing guards confirmed: geo-block covers the mesh vhost, brute-force cooloff 5/5min→30min, `newAccounts: false`.*
 
 ### TRMM SSO + break-glass model (configured 2026-05-07)
 
 Phishing-resistant TRMM admin via Google Workspace SSO. Inherits hardware-key enforcement from the Google account, side-steps TRMM's TOTP-only 2FA limitation.
 
-**Caveat — fork dependency:** Upstream `tacticalrmm-web` v0.101.59 ships SSO that is half-deleted (commit `75a9ef88` removed the post-callback Vue route + auth-store glue without re-implementing it; ~14 months in upstream develop). We run a forked frontend at `quickstack-cc/tacticalrmm-web` branch `qs/sso-callback-fix` (commit `35ffd33`). When upstream restores the missing wiring or merges our patch, drop the fork. See `docs/superpowers/handoffs/2026-05-07-sso-cutover.md` for the full diagnostic record.
+**Caveat — fork dependency:** Upstream `tacticalrmm-web` ships SSO that is half-deleted (commit `75a9ef88` removed the post-callback Vue route + auth-store glue without re-implementing it; still absent as of v0.101.64 / server v1.5.1, checked 2026-07-16). We run a forked frontend at `quickstack-cc/tacticalrmm-web`, currently branch `qs/sso-callback-fix-v0.101.64` (rebase of the original `qs/sso-callback-fix`, deployed 2026-07-16 with server v1.5.1). **Every server upgrade requires rebasing this branch onto the new web tag, Docker Node-20 build, and overlaying dist/ with `--exclude`-style preservation of `env-config.js`** (upstream `update.sh` regenerates env-config.js itself; the overlay must simply not ship one). When upstream restores the missing wiring or merges our patch, drop the fork. See `docs/superpowers/handoffs/2026-05-07-sso-cutover.md` for the full diagnostic record.
 
 **Caveat — deploy procedure:** the VM hosts a runtime-config file at `/var/www/rmm/dist/env-config.js` that the fork's `public/` does not ship. Any `rsync` deploy of `dist/` MUST `--exclude=env-config.js`, or `window._env_` goes undefined and the entire frontend breaks with a confusing `TypeError`. Memory note `feedback_qsrmm_trmm_web_deploy.md` carries the rule.
 
@@ -133,7 +134,7 @@ These are behavioral, not one-time. Worth writing into a personal weekly/monthly
   - Django security advisories: <https://docs.djangoproject.com/en/stable/internals/security/>
   - oss-security mailing list (high signal-to-noise for serious CVEs): <https://oss-security.openwall.org/>
 - [ ] Commit to **patching critical CVEs within 48h** of disclosure. The Kaseya/ConnectWise mass-exploit window was hours-to-days; 48h is your shield.
-- [ ] Pin TRMM to **stable release tags**, not the `develop` branch, before customer #1 (currently on develop per repo state).
+- [x] Pin TRMM to **stable release tags**, not the `develop` branch, before customer #1. *Corrected + verified 2026-07-15: the VM was already on stable (`master` @ v1.4.0) — "currently on develop" referred to the fork working repo, not the server. Upgraded to **v1.5.1** on 2026-07-16 (pre-update snapshot `pre-v151-upgrade-20260716`, upstream release process: auto-agent-update disabled → server update → staged agent updates QS007 → PLLC007 → TMGW033 all to 2.11.0 → re-enabled). Frontend = fork branch `qs/sso-callback-fix-v0.101.64` (upstream web still missing the SSO callback as of v0.101.64), overlaid with `env-config.js` preserved.*
 - [ ] Snapshot the VM before every patch deploy. GCE disk snapshots are cheap.
 
 ### "No `curl | sh`" rule
