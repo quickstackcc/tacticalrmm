@@ -95,7 +95,7 @@ The single biggest residual risk vector. Inventory and prune.
 - [ ] Audit TRMM admin user count: only Jim should have superuser. Demote or delete any others.
 - [ ] Confirm hardware-backed TOTP enforced on all TRMM admin accounts.
 - [ ] Audit existing Knox tokens (`SELECT * FROM knox_authtoken;` via the Django admin or psql). Revoke any orphaned ones.
-- [ ] MeshCentral admin: hardware-MFA-backed, separate from TRMM admin password.
+- [x] MeshCentral admin: hardware-MFA-backed, separate from TRMM admin password. *Done 2026-07-15: site-admin `zuxpotqj` password reset (→ offline bundle), all 3 YubiKeys enrolled via Mesh's native WebAuthn + backup codes printed, and `force2factor: true` set on the domain (config backup at `meshcentral-data/config.json.bak-20260715`) — no password-only login path remains on Mesh, including TRMM's auto-provisioned users. TRMM Take Control verified working after (login tokens bypass the login page, so 2FA doesn't touch the integration). Existing guards confirmed: geo-block covers the mesh vhost, brute-force cooloff 5/5min→30min, `newAccounts: false`.*
 
 ### TRMM SSO + break-glass model (configured 2026-05-07)
 
