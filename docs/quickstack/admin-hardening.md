@@ -197,13 +197,15 @@ Don't take customer money without these in place. Patterns set with customer #1 
 
 Wire these up before customer #1. Each one is cheap to implement and would catch a compromise within minutes.
 
-- [ ] Alert on bulk script execution (> 3 agents in < 60 seconds)
-- [ ] Alert on TRMM script library modification (any add/edit/delete)
-- [ ] Alert on new TRMM admin user creation
-- [ ] Alert on TRMM admin login from new IP (or any non-US IP, given the geo-block — that should be a *security incident* alert, not just info)
-- [ ] Alert on MeshCentral session opened off-hours (define "off-hours" — likely 10pm–6am local)
-- [ ] Alert on agent isolation actions (someone using QSRMM to cut endpoints off the network)
-- [ ] Send all alerts to a dedicated Slack channel + email + push notification. Three-channel redundancy.
+**Implemented 2026-07-16 as `nanormm/tripwire-watch`** — standalone daemon (own read-only Postgres role `tripwire_ro`, no TRMM code modification, survives upgrades) tailing `logs_auditlog` every 20s, posting to `#rmm-alerts` via dedicated Slack webhook. 10-min dedupe, daily heartbeat (a dead tripwire is itself detectable), state at `/var/lib/nanormm/tripwire-state.json`, service `tripwire-watch`. All rules verified end-to-end with synthetic audit rows landing in Slack.
+
+- [x] Alert on bulk script execution (> 3 agents in < 60 seconds) — `bulk_exec` + any `bulk_action` use
+- [x] Alert on TRMM script library modification (any add/edit/delete) — `script_change`
+- [x] Alert on new TRMM admin user creation — `user_added` + `role_change` (role add/modify = escalation vector)
+- [x] Alert on TRMM admin login from new IP — `login_new_ip` (per-user known-IP set, bootstrapped from 90d history) + `failed_login_burst` (≥3 in 10 min). Non-US IPs never reach the audit log — nginx geo-block 403s them pre-auth.
+- [x] Alert on MeshCentral session opened off-hours (10pm–6am America/Chicago) — `offhours_session`. Covers TRMM-initiated sessions; direct mesh.quickstack.cc sessions don't audit here (accepted: mesh is force2factor + hardware-key).
+- [x] Alert on agent isolation actions — best-effort `isolation_keyword` match on exec messages (TRMM has no native isolation action) + bulk detection above.
+- [ ] Send all alerts to a dedicated Slack channel + email + push notification. Three-channel redundancy. *Partial: Slack live 2026-07-16; email + push pending.*
 
 ### Logging
 

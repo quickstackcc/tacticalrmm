@@ -1,0 +1,21 @@
+[Unit]
+Description=QSRMM audit-log tripwire daemon
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jim_quickstack_cc
+WorkingDirectory=/opt/nanormm/tripwire-watch
+EnvironmentFile=/etc/nanormm/tripwire.env
+ExecStart=/opt/nanormm/tripwire-watch/.venv/bin/python -m tripwire_watch
+Restart=always
+RestartSec=5
+StateDirectory=nanormm
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/nanormm
+
+[Install]
+WantedBy=multi-user.target
