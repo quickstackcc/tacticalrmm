@@ -60,25 +60,19 @@ Cardinal rule: **enroll both keys + print recovery codes BEFORE enforcing anythi
 
 ### Browser separation
 
-- [ ] Create a dedicated browser profile (Firefox container / Chrome profile) named **QSRMM Admin**.
-- [ ] In that profile, install only:
-  - Password manager extension
-  - Nothing else. No ad-blocker, no productivity tools, no AI assistants.
-- [ ] Use this profile *only* for: TRMM web UI, GCP console (when admin'ing the QSRMM project), AmidaWare sponsor portal, and Mesh admin.
-- [ ] Never log into Google personal, Slack personal, social media, or random sites in this profile.
-- [ ] Verify: extensions list in the QSRMM Admin profile shows ≤ 1 extension.
+- [x] Create a dedicated browser profile named **QSRMM Admin** — a **full separate profile** (Chrome profile or Firefox `about:profiles`). **Not a Firefox container** (corrected 2026-07-15: extensions run across all containers, so containers don't isolate the extension threat). *Done 2026-07-15: Chrome "Profile 13" (QSRMM), signed into jim@quickstack.cc, launcher `~/.local/share/applications/chrome-qsrmm.desktop` matching the per-client shortcut convention.*
+- [x] In that profile, install **zero extensions** (corrected 2026-07-15: the password-manager allowance is moot — no vault exists). No ad-blocker, no productivity tools, no AI assistants. *Verified 2026-07-15: zero user-installed extensions (only Chrome's stock Docs Offline + Web Store Payments components).*
+- [ ] Use this profile *only* for: TRMM web UI, GCP console (when admin'ing the QSRMM project), Workspace admin console, PayPal (sponsorship billing), and Mesh admin. (Ongoing habit.)
+- [ ] Never log into Google personal, Slack personal, social media, or random sites in this profile. (Ongoing habit.)
+- [x] Verify: extensions list in the QSRMM Admin profile shows zero user-installed extensions. *Verified 2026-07-15.*
 
 ### SSH key separation
 
-- [ ] Generate a dedicated key for QSRMM server access:
-  ```bash
-  ssh-keygen -t ed25519 -f ~/.ssh/qsrmm_ed25519 -C "qsrmm-admin-$(hostname)"
-  ```
-  Set a strong passphrase (≥ 6 random words) and **store it offline** — written down with the Google recovery codes and backup YubiKey. (No password-manager vault exists; see Hardware MFA above.)
-- [ ] Configure ssh-agent to forget this key after 4 hours: `ssh-add -t 14400 ~/.ssh/qsrmm_ed25519`.
-- [ ] Add only this key to the QSRMM VM's `~/.ssh/authorized_keys`. Remove any other keys that crept in during install.
-- [ ] Add a `~/.ssh/config` block scoping the key to the QSRMM VM only — other hosts must not be able to use it.
-- [ ] Verify: `ssh -i ~/.ssh/qsrmm_ed25519 qsrmm-vm` works; daily-driver default key (`id_ed25519`) does *not*.
+**Rewritten 2026-07-15 to match reality:** VM access is `gcloud compute ssh` over IAP with **OS Login on** — there are no `authorized_keys` files in play (verified zero entries on the VM), keys are authorized via the YubiKey-gated Google identity, and port 22 accepts only Google's IAP range (`35.235.240.0/20`). A dedicated per-host key adds nothing under OS Login (authorization is IAM, not key placement). The laptop-resident credentials that actually matter are the unencrypted `~/.ssh/google_compute_engine` key and the cached gcloud OAuth refresh token in `~/.config/gcloud`.
+
+- [x] Prune stale OS Login keys — *done 2026-07-15: removed leftover Windows-era key (`5601b79e…`); sole remaining key is the current Zorin one (`7e49da79…`).*
+- [x] Passphrase the local keys in place (passphrases → offline bundle; no vault exists) — *done 2026-07-15, verified both keys reject empty passphrase.* Caveat: GNOME keyring caches the passphrase per login session — the win is at-rest encryption of the key file.
+- [x] **Workspace Google Cloud session control** (admin.google.com → Security → Access and data control) — *done 2026-07-15: Google's 2023 default had already capped sessions at 16h (explains the daily gcloud reauth); reauthentication method set to Security key, so the daily refresh is a tap. Caps the stolen-refresh-token window at ≤16h. Service accounts unaffected.*
 
 ### Audit installed dev/admin tooling
 
@@ -93,13 +87,8 @@ The single biggest residual risk vector. Inventory and prune.
 
 ### Server-side: lock down SSH on QSRMM VM
 
-- [ ] In `/etc/ssh/sshd_config`:
-  - `PasswordAuthentication no`
-  - `PermitRootLogin no`
-  - `ChallengeResponseAuthentication no`
-  - `KbdInteractiveAuthentication no`
-- [ ] Reload sshd; verify with `ssh -o PreferredAuthentications=password user@vm` — must reject.
-- [ ] Confirm GCP firewall rule for SSH (port 22) restricts source IPs to your admin workstation IP, or move SSH access behind GCP IAP (recommended — `gcloud compute ssh` over IAP works without exposing 22).
+- [x] In `/etc/ssh/sshd_config`: `PasswordAuthentication no`, `PermitRootLogin no`, `KbdInteractiveAuthentication no` — *verified live via `sshd -T` 2026-07-15.*
+- [x] Confirm GCP firewall rule for SSH (port 22) restricts sources — *verified 2026-07-15: rule `rmm-ssh-iap` allows 22 only from IAP range `35.235.240.0/20`; no public SSH exposure. OS Login enabled.*
 
 ### Server-side: TRMM admin hardening
 
