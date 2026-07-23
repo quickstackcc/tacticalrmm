@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This is a **fork of [amidaware/tacticalrmm](https://github.com/amidaware/tacticalrmm) for Quick Stack**, currently unmodified from upstream. Remotes:
+This is a **fork of [amidaware/tacticalrmm](https://github.com/amidaware/tacticalrmm) for Quick Stack**, currently unmodified from upstream (delta is only this file and `.gitignore` — keep it that way so rebases stay trivial). Quick Stack's own code and docs were extracted 2026-07-23: the nanormm integration (approval-bridge, trmm-mcp, recon, tripwire-watch) lives in `quickstackcc/nanormm`, and MSP runbooks/session docs live in `quickstackcc/qs-ops`. Don't add non-upstream files here. Remotes:
 
 - `origin` → `https://github.com/quickstack-cc/tacticalrmm`
 - `upstream` → `https://github.com/amidaware/tacticalrmm`
